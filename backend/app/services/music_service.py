@@ -77,6 +77,7 @@ def detect_optimal_gpu_config() -> dict:
         - gpu_info: dict - info about each GPU (name, vram, compute capability)
         - config_name: str - human-readable name of the selected configuration
         - warning: str or None - any warnings about the configuration
+        - device_type: str - "mps", "cuda", or "cpu"
     """
     result = {
         "use_quantization": True,  # Default to quantization for safety
@@ -85,12 +86,37 @@ def detect_optimal_gpu_config() -> dict:
         "gpu_info": {},
         "config_name": "CPU Only",
         "warning": None,
+        "device_type": "cpu",
     }
 
-    if not torch.cuda.is_available():
-        result["warning"] = "No CUDA GPU detected. Running on CPU will be very slow."
+    # Check for MPS (Apple Silicon) first
+    if torch.backends.mps.is_available():
+        result["device_type"] = "mps"
+        result["num_gpus"] = 1
+        result["gpu_info"] = {
+            0: {
+                "name": "Apple Silicon GPU (MPS)",
+                "vram_gb": 0.0,  # MPS doesn't expose VRAM easily
+                "compute_capability": 0.0,
+                "supports_flash_attention": False,
+            }
+        }
+        # For MPS, use quantization to reduce memory usage
+        result["use_quantization"] = True
+        result["use_sequential_offload"] = True
+        result["config_name"] = "Apple Silicon MPS (Quantized + Sequential Offload)"
+        result["warning"] = "MPS backend detected. Generation will be slower than CUDA but faster than CPU."
+        print(f"\n[Auto-Config] Detected Apple Silicon GPU (MPS)", flush=True)
+        print(f"[Auto-Config] Selected: QUANTIZED + SEQUENTIAL OFFLOAD mode for MPS", flush=True)
+        print(f"[Auto-Config] Note: MPS may have compatibility issues with some operations.", flush=True)
+        print("", flush=True)
         return result
 
+    if not torch.cuda.is_available():
+        result["warning"] = "No CUDA or MPS GPU detected. Running on CPU will be very slow."
+        return result
+
+    result["device_type"] = "cuda"
     num_gpus = torch.cuda.device_count()
     result["num_gpus"] = num_gpus
 
@@ -395,32 +421,54 @@ def create_quantized_pipeline(
     tokenizer = Tokenizer.from_file(tokenizer_path)
     gen_config = HeartMuLaGenConfig.from_file(gen_config_path)
 
-    # Create 4-bit quantization config
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_use_double_quant=True,
-    )
+    # Determine dtype based on device type
+    # MPS requires consistent dtype (float16), CUDA uses bfloat16
+    if mula_device.type == "mps":
+        mula_dtype = torch.float16
+        codec_dtype = torch.float32
+        print(f"[MPS] Loading HeartMuLa on MPS device with float16 (quantization not supported on MPS)", flush=True)
+        heartmula = HeartMuLa.from_pretrained(
+            mula_path,
+            dtype=mula_dtype,
+        )
+        heartmula = heartmula.to(mula_device)
+    else:
+        mula_dtype = torch.bfloat16
+        codec_dtype = torch.float32
+        # Create 4-bit quantization config for CUDA/CPU
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=mula_dtype,
+            bnb_4bit_use_double_quant=True,
+        )
 
-    print(f"[Quantization] Loading HeartMuLa with 4-bit NF4 quantization...", flush=True)
+        print(f"[Quantization] Loading HeartMuLa with 4-bit NF4 quantization...", flush=True)
 
-    # Load HeartMuLa with quantization
-    heartmula = HeartMuLa.from_pretrained(
-        mula_path,
-        device_map=mula_device,
-        torch_dtype=torch.bfloat16,
-        quantization_config=bnb_config,
-    )
+        # Load HeartMuLa with quantization
+        heartmula = HeartMuLa.from_pretrained(
+            mula_path,
+            device_map=mula_device,
+            dtype=mula_dtype,
+            quantization_config=bnb_config,
+        )
 
     heartcodec = None
     if not lazy_codec:
         # Load HeartCodec normally (it's smaller, no need for quantization)
-        heartcodec = HeartCodec.from_pretrained(
-            codec_path,
-            device_map=codec_device,
-            dtype=torch.float32,
-        )
+        if codec_device.type == "mps":
+            print(f"[MPS] Loading HeartCodec on MPS device with float32", flush=True)
+            heartcodec = HeartCodec.from_pretrained(
+                codec_path,
+                dtype=codec_dtype,
+            )
+            heartcodec = heartcodec.to(codec_device)
+        else:
+            heartcodec = HeartCodec.from_pretrained(
+                codec_path,
+                device_map=codec_device,
+                dtype=codec_dtype,
+            )
         print(f"[Quantization] Models loaded. HeartMuLa VRAM reduced by ~4x.", flush=True)
     else:
         print(f"[Quantization] HeartMuLa loaded (~3GB). HeartCodec will load lazily for decoding.", flush=True)
@@ -432,8 +480,8 @@ def create_quantized_pipeline(
         heartcodec_path=codec_path,
         heartmula_device=mula_device,
         heartcodec_device=codec_device,
-        heartmula_dtype=torch.bfloat16,
-        heartcodec_dtype=torch.float32,
+        heartmula_dtype=mula_dtype,
+        heartcodec_dtype=codec_dtype,
         lazy_load=True,  # Don't load models in __init__
         muq_mulan=None,
         text_tokenizer=tokenizer,
@@ -486,7 +534,23 @@ def patch_pipeline_with_callback(pipeline: HeartMuLaGenPipeline, sequential_offl
         bs_size = 2 if cfg_scale != 1.0 else 1
         pipeline.mula.setup_caches(bs_size)
 
-        with torch.autocast(device_type=pipeline.mula_device.type, dtype=pipeline.mula_dtype):
+        # Use autocast only for CUDA, not for MPS (unsupported)
+        use_autocast = pipeline.mula_device.type == "cuda"
+        autocast_dtype = pipeline.mula_dtype if use_autocast else None
+
+        if use_autocast:
+            with torch.autocast(device_type=pipeline.mula_device.type, dtype=autocast_dtype):
+                curr_token = pipeline.mula.generate_frame(
+                    tokens=prompt_tokens,
+                    tokens_mask=prompt_tokens_mask,
+                    input_pos=prompt_pos,
+                    temperature=temperature,
+                    topk=topk,
+                    cfg_scale=cfg_scale,
+                    continuous_segments=continuous_segment,
+                    starts=starts,
+                )
+        else:
             curr_token = pipeline.mula.generate_frame(
                 tokens=prompt_tokens,
                 tokens_mask=prompt_tokens_mask,
@@ -520,7 +584,19 @@ def patch_pipeline_with_callback(pipeline: HeartMuLaGenPipeline, sequential_offl
 
         for i in tqdm(range(max_audio_frames), desc="Generating audio"):
             curr_token, curr_token_mask = _pad_audio_token(curr_token)
-            with torch.autocast(device_type=pipeline.mula_device.type, dtype=pipeline.mula_dtype):
+            if use_autocast:
+                with torch.autocast(device_type=pipeline.mula_device.type, dtype=autocast_dtype):
+                    curr_token = pipeline.mula.generate_frame(
+                        tokens=curr_token,
+                        tokens_mask=curr_token_mask,
+                        input_pos=prompt_pos[..., -1:] + i + 1,
+                        temperature=temperature,
+                        topk=topk,
+                        cfg_scale=cfg_scale,
+                        continuous_segments=None,
+                        starts=None,
+                    )
+            else:
                 curr_token = pipeline.mula.generate_frame(
                     tokens=curr_token,
                     tokens_mask=curr_token_mask,
@@ -549,9 +625,13 @@ def patch_pipeline_with_callback(pipeline: HeartMuLaGenPipeline, sequential_offl
             pipeline.mula.reset_caches()
             pipeline._mula.to("cpu")
             gc.collect()
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-            print(f"[Sequential Offload] VRAM after offload: {torch.cuda.memory_allocated()/1024**3:.2f}GB", flush=True)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                print(f"[Sequential Offload] VRAM after offload: {torch.cuda.memory_allocated()/1024**3:.2f}GB", flush=True)
+            elif torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+                print("[Sequential Offload] MPS cache cleared", flush=True)
         else:
             pipeline._unload()
 
@@ -565,16 +645,32 @@ def patch_pipeline_with_callback(pipeline: HeartMuLaGenPipeline, sequential_offl
             print("[Lazy Loading] Loading HeartCodec for decoding...", flush=True)
             codec_path = getattr(pipeline, '_codec_path', None)
             if codec_path:
-                pipeline._codec = HeartCodec.from_pretrained(
-                    codec_path,
-                    device_map=pipeline.codec_device,
-                    dtype=torch.float32,
-                )
-                print(f"[Lazy Loading] HeartCodec loaded. VRAM: {torch.cuda.memory_allocated()/1024**3:.2f}GB", flush=True)
+                # Use float32 for codec on MPS, float32 for CUDA as well
+                codec_dtype = torch.float32
+                if pipeline.codec_device.type == "mps":
+                    pipeline._codec = HeartCodec.from_pretrained(
+                        codec_path,
+                        dtype=codec_dtype,
+                    )
+                    pipeline._codec = pipeline._codec.to(pipeline.codec_device)
+                else:
+                    pipeline._codec = HeartCodec.from_pretrained(
+                        codec_path,
+                        device_map=pipeline.codec_device,
+                        dtype=codec_dtype,
+                    )
+                if torch.cuda.is_available():
+                    print(f"[Lazy Loading] HeartCodec loaded. VRAM: {torch.cuda.memory_allocated()/1024**3:.2f}GB", flush=True)
+                else:
+                    print(f"[Lazy Loading] HeartCodec loaded on {pipeline.codec_device.type}", flush=True)
             else:
                 raise RuntimeError("Cannot load HeartCodec: codec_path not available")
 
-        frames_for_codec = frames.to(pipeline.codec_device)
+        # Clip indices to valid range for HeartCodec (0 to codebook_size-1 = 8191)
+        # HeartMuLa generates indices up to 8196, but HeartCodec expects 0-8191
+        max_valid_index = pipeline.codec.config.codebook_size - 1  # 8191 for codebook_size=8192
+        frames_clipped = torch.clamp(frames, 0, max_valid_index)
+        frames_for_codec = frames_clipped.to(pipeline.codec_device)
         wav = pipeline.codec.detokenize(frames_for_codec)
 
         # Cleanup codec if using lazy loading (free VRAM for next generation)
@@ -583,8 +679,11 @@ def patch_pipeline_with_callback(pipeline: HeartMuLaGenPipeline, sequential_offl
             del pipeline._codec
             pipeline._codec = None
             gc.collect()
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+            elif torch.backends.mps.is_available():
+                torch.mps.empty_cache()
 
         if pipeline._sequential_offload:
             # Move HeartMuLa back to GPU for next generation
@@ -613,11 +712,18 @@ def cleanup_gpu_memory():
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
         logger.info("GPU memory cleaned up")
+    elif torch.backends.mps.is_available():
+        # MPS doesn't have explicit cache clearing, but garbage collection helps
+        torch.mps.empty_cache()
+        logger.info("MPS memory cleaned up")
 
 
 def get_gpu_memory(device_id):
-    props = torch.cuda.get_device_properties(device_id)
-    return props.total_memory / (1024 ** 3)
+    if torch.cuda.is_available():
+        props = torch.cuda.get_device_properties(device_id)
+        return props.total_memory / (1024 ** 3)
+    # MPS doesn't expose VRAM easily
+    return 0.0
 
 
 class MusicService:
@@ -671,11 +777,84 @@ class MusicService:
         self.gpu_config = auto_config
 
         num_gpus = auto_config["num_gpus"]
+        device_type = auto_config["device_type"]
+
+        # Determine device to use
+        if device_type == "mps":
+            device = torch.device("mps")
+        elif device_type == "cuda":
+            device = torch.device("cuda")
+        else:
+            device = torch.device("cpu")
 
         if use_quantization:
             print(f"[Quantization] 4-bit quantization ENABLED - model will use ~3GB instead of ~11GB", flush=True)
         else:
             print(f"[Quantization] 4-bit quantization DISABLED - using full precision (~11GB)", flush=True)
+
+        if device_type == "mps":
+            # MPS (Apple Silicon) specific handling
+            logger.info("Using Apple Silicon MPS backend...")
+            self.gpu_mode = "single"
+
+            # For MPS, use float16 for HeartMuLa (not bfloat16)
+            mula_dtype = torch.float16
+            codec_dtype = torch.float32
+
+            # Use MPS for both HeartMuLa and HeartCodec
+            codec_device_mps = torch.device("mps")
+
+            if use_quantization:
+                if use_sequential_offload:
+                    print("[MPS Mode] Using lazy codec loading for Apple Silicon (codec on MPS)", flush=True)
+                    pipeline = create_quantized_pipeline(
+                        model_path, version,
+                        mula_device=device,
+                        codec_device=codec_device_mps,
+                        lazy_codec=True,  # Don't load HeartCodec upfront
+                    )
+                    return patch_pipeline_with_callback(pipeline, sequential_offload=True)
+                else:
+                    print("[MPS Mode] HeartMuLa on MPS, HeartCodec on MPS", flush=True)
+                    pipeline = create_quantized_pipeline(
+                        model_path, version,
+                        mula_device=device,
+                        codec_device=codec_device_mps,
+                        lazy_codec=False,
+                    )
+                    return patch_pipeline_with_callback(pipeline, sequential_offload=False)
+            elif use_sequential_offload:
+                print("[MPS Sequential Offload] ENABLED - codec on MPS", flush=True)
+                pipeline = HeartMuLaGenPipeline.from_pretrained(
+                    model_path,
+                    device={
+                        "mula": device,
+                        "codec": codec_device_mps,
+                    },
+                    dtype={
+                        "mula": mula_dtype,
+                        "codec": codec_dtype,
+                    },
+                    version=version,
+                    lazy_load=True,
+                )
+                return patch_pipeline_with_callback(pipeline, sequential_offload=True)
+            else:
+                # Without quantization, use lazy loading - codec on MPS
+                pipeline = HeartMuLaGenPipeline.from_pretrained(
+                    model_path,
+                    device={
+                        "mula": device,
+                        "codec": codec_device_mps,
+                    },
+                    dtype={
+                        "mula": mula_dtype,
+                        "codec": codec_dtype,
+                    },
+                    version=version,
+                    lazy_load=True,
+                )
+                return patch_pipeline_with_callback(pipeline, sequential_offload=False)
 
         if num_gpus < 2:
             logger.info(f"Found {num_gpus} GPU(s). Using single GPU mode...")
@@ -692,8 +871,8 @@ class MusicService:
                     print("[12GB GPU Mode] Using lazy codec loading for 12GB GPU", flush=True)
                     pipeline = create_quantized_pipeline(
                         model_path, version,
-                        mula_device=torch.device("cuda"),
-                        codec_device=torch.device("cuda"),
+                        mula_device=device,
+                        codec_device=device,
                         lazy_codec=True,  # Don't load HeartCodec upfront
                     )
                     return patch_pipeline_with_callback(pipeline, sequential_offload=True)
@@ -702,8 +881,8 @@ class MusicService:
                     print("[14GB+ GPU Mode] Both models fit in VRAM without swapping", flush=True)
                     pipeline = create_quantized_pipeline(
                         model_path, version,
-                        mula_device=torch.device("cuda"),
-                        codec_device=torch.device("cuda"),
+                        mula_device=device,
+                        codec_device=device,
                         lazy_codec=False,
                     )
                     return patch_pipeline_with_callback(pipeline, sequential_offload=False)
@@ -714,8 +893,8 @@ class MusicService:
                 pipeline = HeartMuLaGenPipeline.from_pretrained(
                     model_path,
                     device={
-                        "mula": torch.device("cuda"),
-                        "codec": torch.device("cuda"),  # Will be loaded when needed
+                        "mula": device,
+                        "codec": device,  # Will be loaded when needed
                     },
                     dtype={
                         "mula": torch.bfloat16,
@@ -730,7 +909,7 @@ class MusicService:
                 pipeline = HeartMuLaGenPipeline.from_pretrained(
                     model_path,
                     device={
-                        "mula": torch.device("cuda"),
+                        "mula": device,
                         "codec": torch.device("cpu"),
                     },
                     dtype={
@@ -1062,6 +1241,8 @@ class MusicService:
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                         torch.cuda.synchronize()
+                    elif torch.backends.mps.is_available():
+                        torch.mps.empty_cache()
                     logger.info("GPU memory cleaned up after generation")
                 except Exception as cleanup_err:
                     logger.warning(f"Memory cleanup warning: {cleanup_err}")
