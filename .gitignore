@@ -52,3 +52,5 @@ htmlcov/
 backend/generated_tokens/*
 !backend/generated_tokens/.gitkeep
 .env
+backend/jobs.db
+frontend/package-lock.json
