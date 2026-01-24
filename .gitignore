@@ -54,3 +54,4 @@ backend/generated_tokens/*
 .env
 backend/jobs.db
 frontend/package-lock.json
+backend/models/
