@@ -264,7 +264,12 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 # Install backend dependencies
 pip install -r backend/requirements.txt
 ```
-
+For MacOS M-based(Silicon) use:
+```
+python3.10 -m venv venv
+source venv/bin/activate
+pip install -r backend/requirements.txt
+```
 > **Note:** HeartLib models (~5GB) will be downloaded automatically from HuggingFace on first run.
 
 ### 3. Frontend Setup
