@@ -267,6 +267,27 @@ pip install -r backend/requirements.txt
 
 > **Note:** HeartLib models (~5GB) will be downloaded automatically from HuggingFace on first run.
 
+### For MacOS M-based(Silicon) only:
+For macOS M-series (M1/M2/M3) use Python 3.10:
+```
+python3.10 -m venv venv
+source venv/bin/activate
+pip install -r backend/requirements.txt
+
+```
+Apply this patch to force .to(timesteps.dtype) instead:
+```
+sed -i '' 's/).type(timesteps.type())/).to(timesteps.dtype)/' venv/lib/python3.10/site-packages/heartlib/heartcodec/models/transformer.py
+```
+Limitations:
+- MPS does not support mixed precision (F16 + BF16). During compilations you can see:
+```/MPSGraphUtilities.mm:43:0: error: 'mps.matmul' op detected operation with both F16 and BF16 operands which is not supported```
+Therefore, F16 is used by default.
+- BitsAndBytes / Quantization
+BitsAndBytesConfig works only on CUDA.
+- 4-bit quantization (NF4) is implemented only for CUDA.
+
+
 ### 3. Frontend Setup
 
 ```bash
