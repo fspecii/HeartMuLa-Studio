@@ -106,6 +106,30 @@ Automatically configured based on your GPU:
 | NVIDIA SM 6.x and older (Pascal, Maxwell) | ❌ Disabled (uses math backend) |
 | AMD GPUs | ❌ Disabled (compatibility varies) |
 
+### 🔥 torch.compile (Experimental)
+Enable PyTorch 2.0+ compilation for **~2x faster inference** on supported GPUs:
+
+```bash
+# Enable torch.compile
+HEARTMULA_COMPILE=true python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+
+# With max performance (slower first run, faster subsequent runs)
+HEARTMULA_COMPILE=true HEARTMULA_COMPILE_MODE=max-autotune python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+```
+
+| Mode | Description |
+|------|-------------|
+| `default` | Good balance of compile time and performance |
+| `reduce-overhead` | Faster compilation, slightly less optimal code |
+| `max-autotune` | Best performance, but slowest compilation (recommended for production) |
+
+**Requirements:**
+- PyTorch 2.0+
+- **Linux/WSL2**: Install Triton (`pip install triton`)
+- **Windows**: Install Triton-Windows (`pip install -U 'triton-windows>=3.2,<3.3'`)
+
+> **Note:** First generation will be slower due to compilation. Subsequent generations benefit from the compiled kernels.
+
 ### 🎯 Smart Multi-GPU Detection
 Automatically selects the best GPU configuration:
 - **With 4-bit quantization**: Prioritizes fastest GPU (highest compute capability)
@@ -335,6 +359,8 @@ OLLAMA_HOST=http://localhost:11434
 | `HEARTMULA_MODEL_DIR` | `backend/models` | Custom model directory (share with ComfyUI, etc.) |
 | `HEARTMULA_4BIT` | `auto` | 4-bit quantization: `auto`, `true`, or `false` |
 | `HEARTMULA_SEQUENTIAL_OFFLOAD` | `auto` | Model swapping for low VRAM: `auto`, `true`, or `false` |
+| `HEARTMULA_COMPILE` | `false` | torch.compile for ~2x faster inference: `true` or `false` |
+| `HEARTMULA_COMPILE_MODE` | `default` | Compile mode: `default`, `reduce-overhead`, or `max-autotune` |
 | `HEARTMULA_VERSION` | `RL-3B-20260123` | Model version (latest RL-tuned model) |
 | `CUDA_VISIBLE_DEVICES` | all GPUs | Specify which GPUs to use (e.g., `0,1`) |
 
