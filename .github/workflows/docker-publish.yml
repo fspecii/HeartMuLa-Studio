@@ -58,6 +58,7 @@ jobs:
   build-and-push-dockerhub:
     runs-on: ubuntu-latest
     needs: build-and-push-ghcr  # Run after GHCR succeeds
+    continue-on-error: true  # Don't fail workflow if Docker Hub has issues (large layer uploads often fail)
 
     steps:
       - name: Checkout repository
