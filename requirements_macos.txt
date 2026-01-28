@@ -24,9 +24,23 @@ torchaudio>=2.0.0
 # HeartLib - AI Music Generation Engine
 heartlib @ git+https://github.com/HeartMuLa/heartlib.git
 
+# Transformers (constrain to avoid yanked 4.57.0)
+transformers>=4.35.0,<4.57.0
+
 # Audio Processing
 soundfile>=0.12.0
 librosa>=0.10.0
+
+# Optional: Triton for torch.compile optimization (Linux/macOS Intel)
+# Required for optimal performance with torch.compile
+# Note: Not available on Apple Silicon - will be skipped gracefully
+triton>=2.0.0; platform_machine != "arm64"
+
+# Optional: Advanced ML dependencies
+# These are optional for the application and imported with try/except in the codebase
+# Uncomment only if you encounter import errors during runtime
+# mamba-ssm  # Uncomment if heartlib requires mamba-ssm for specific features
+# tensorboard  # Uncomment if you need TensorBoard logging capabilities
 
 # PyInstaller for macOS App Bundle
 pyinstaller>=6.0,<7.0

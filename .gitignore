@@ -61,3 +61,6 @@ htmlcov/
 backend/generated_tokens/*
 !backend/generated_tokens/.gitkeep
 .env
+
+# Build test artifacts
+test_build_linux.sh
