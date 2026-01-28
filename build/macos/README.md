@@ -22,6 +22,8 @@ build/macos/
 - Node.js 18+
 - Homebrew (for icon generation tools)
 
+**Note**: The app uses pywebview for native window rendering. This is automatically included in the build.
+
 ### Automated Build Script
 
 For the easiest local build experience, use the provided build script:

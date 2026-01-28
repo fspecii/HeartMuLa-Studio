@@ -154,7 +154,7 @@ Open http://localhost:5173
 
 ## macOS App (Beta)
 
-HeartMuLa Studio is available as a standalone macOS application optimized for Apple Metal GPUs.
+HeartMuLa Studio is available as a standalone macOS application with a native app window, optimized for Apple Metal GPUs.
 
 ### Download
 
@@ -193,9 +193,10 @@ This ensures:
 ### Features
 
 - **Standalone App**: No Python or Node.js installation required
+- **Native Window**: Uses pywebview for a native macOS app experience (single instance only)
 - **Apple Metal GPU**: Optimized for M1/M2/M3 and Intel Macs with Metal support
 - **Auto-Download**: Models are automatically downloaded on first launch (~5GB)
-- **Native macOS**: Code-signed and packaged with PyInstaller
+- **Code-Signed**: Packaged with PyInstaller and ad-hoc code signing
 
 ### System Requirements
 
