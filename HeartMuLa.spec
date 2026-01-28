@@ -38,6 +38,7 @@ hiddenimports += collect_submodules('heartlib')
 hiddenimports += collect_submodules('transformers')
 hiddenimports += collect_submodules('torch')
 hiddenimports += collect_submodules('torchaudio')
+hiddenimports += collect_submodules('webview')  # pywebview
 hiddenimports += ['uvicorn.logging', 'uvicorn.loops', 'uvicorn.loops.auto', 'uvicorn.protocols', 
                   'uvicorn.protocols.http', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.websockets',
                   'uvicorn.protocols.websockets.auto', 'uvicorn.lifespan', 'uvicorn.lifespan.on',

@@ -8,11 +8,11 @@ It sets up the environment and launches the FastAPI server with the frontend.
 import os
 import sys
 import subprocess
-import webbrowser
 import time
 import shutil
 import threading
 from pathlib import Path
+import socket
 
 def setup_environment():
     """Set up the macOS app environment."""
@@ -58,6 +58,20 @@ def setup_environment():
     
     return app_dir, logs_dir
 
+def check_single_instance():
+    """Check if another instance of the app is already running."""
+    lock_file = Path.home() / "Library" / "Application Support" / "HeartMuLa" / ".lock"
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Try to bind to a port to ensure single instance
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(('127.0.0.1', 58765))  # Random high port for lock
+        return sock  # Keep socket open to maintain lock
+    except OSError:
+        # Port is already in use - another instance is running
+        return None
+
 def launch_server(app_dir, logs_dir):
     """Launch the FastAPI server."""
     # Import and run the FastAPI app
@@ -67,30 +81,65 @@ def launch_server(app_dir, logs_dir):
     import uvicorn
     from backend.app.main import app
     
-    # Open browser after a short delay
-    def open_browser():
-        time.sleep(3)
+    # Run the server in a thread so pywebview can take control of main thread
+    def run_server():
+        print(f"Starting HeartMuLa Studio server...")
+        print(f"Logs directory: {logs_dir}")
+        
+        uvicorn.run(
+            app,
+            host="127.0.0.1",
+            port=8000,
+            log_level="info",
+            access_log=True
+        )
+    
+    server_thread = threading.Thread(target=run_server, daemon=True)
+    server_thread.start()
+    
+    # Wait for server to be ready
+    print("Waiting for server to start...")
+    time.sleep(3)
+    
+    # Launch pywebview window
+    try:
+        import webview
+        print("Opening HeartMuLa Studio window...")
+        
+        # Create window with custom settings
+        window = webview.create_window(
+            'HeartMuLa Studio',
+            'http://127.0.0.1:8000',
+            width=1400,
+            height=900,
+            resizable=True,
+            fullscreen=False,
+            min_size=(800, 600),
+            background_color='#1a1a1a',
+            text_select=True
+        )
+        
+        # Start the webview - this blocks until window is closed
+        webview.start()
+        
+    except ImportError:
+        print("Warning: pywebview not available, falling back to browser")
+        import webbrowser
         webbrowser.open("http://localhost:8000")
-    
-    browser_thread = threading.Thread(target=open_browser, daemon=True)
-    browser_thread.start()
-    
-    # Run the server
-    print(f"Starting HeartMuLa Studio server...")
-    print(f"Logs directory: {logs_dir}")
-    print(f"Opening browser at http://localhost:8000")
-    
-    uvicorn.run(
-        app,
-        host="127.0.0.1",
-        port=8000,
-        log_level="info",
-        access_log=True
-    )
+        # Keep the server running
+        while True:
+            time.sleep(1)
 
 def main():
     """Main entry point."""
     try:
+        # Check if another instance is already running
+        lock_socket = check_single_instance()
+        if lock_socket is None:
+            print("Another instance of HeartMuLa Studio is already running.")
+            print("Only one instance can be opened at a time.")
+            sys.exit(0)
+        
         app_dir, logs_dir = setup_environment()
         launch_server(app_dir, logs_dir)
     except KeyboardInterrupt:

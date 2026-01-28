@@ -45,5 +45,5 @@ triton>=2.0.0; platform_machine != "arm64"
 # PyInstaller for macOS App Bundle
 pyinstaller>=6.0,<7.0
 
-# PyWebView for native macOS UI (optional, for future native UI - not currently used)
-# pywebview>=4.0
+# PyWebView for native macOS UI
+pywebview>=4.0
