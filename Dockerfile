@@ -56,6 +56,9 @@ COPY --chown=heartmula:heartmula backend/requirements.txt /app/backend/
 # Layer 1: pip upgrade
 RUN pip3 install --no-cache-dir --upgrade pip
 
+# Force uninstall potential incompatible pre-installed versions
+RUN pip3 uninstall -y numpy scipy
+
 # Ensure compatible NumPy version (avoid NumPy 2.x which breaks some libs)
 RUN pip3 install --no-cache-dir "numpy<2"
 
