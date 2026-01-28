@@ -1,0 +1,35 @@
+# HeartMuLa Studio - macOS Requirements
+# Optimized for PyInstaller bundling with Apple Metal GPU support
+
+# Core Dependencies
+fastapi>=0.115.2
+uvicorn>=0.27.0
+sqlmodel>=0.0.16
+python-multipart>=0.0.18
+python-dotenv>=1.0.0
+requests>=2.32.2
+aiofiles>=23.2.1
+pydantic>=2.6.1
+httpx>=0.27.0
+sse-starlette>=2.0.0
+huggingface_hub>=0.20.0
+
+# PyTorch for Apple Metal
+# Use conda or pip install torch for macOS with Metal support:
+# pip install torch torchvision torchaudio
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+
+# HeartLib - AI Music Generation Engine
+heartlib @ git+https://github.com/HeartMuLa/heartlib.git
+
+# Audio Processing
+soundfile>=0.12.0
+librosa>=0.10.0
+
+# PyInstaller for macOS App Bundle
+pyinstaller>=6.0,<7.0
+
+# PyWebView for native macOS UI (optional, for future native UI - not currently used)
+# pywebview>=4.0

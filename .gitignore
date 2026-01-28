@@ -11,7 +11,7 @@ backend/.env
 
 # Node
 node_modules/
-dist/
+frontend/dist/
 .npm
 *.log
 
@@ -41,7 +41,16 @@ logs/
 # Build artifacts
 *.egg-info/
 build/
+!build/macos/
 *.egg
+
+# PyInstaller
+dist/*.app/
+dist/*.zip
+dist/*.dmg
+*.spec.backup
+*.manifest
+*.pyc
 
 # Testing
 .pytest_cache/

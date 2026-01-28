@@ -152,7 +152,61 @@ That's it! The system auto-detects your GPU and downloads models on first run.
 
 Open http://localhost:5173
 
-## Docker (Recommended)
+## macOS App (Beta)
+
+HeartMuLa Studio is available as a standalone macOS application optimized for Apple Metal GPUs.
+
+### Download
+
+Download the latest macOS release from the [Releases](https://github.com/audiohacking/HeartMuLa-Studio/releases) page:
+- **HeartMuLa-macOS.dmg** - Drag and drop installer
+- **HeartMuLa-macOS.zip** - Portable app bundle
+
+### Installation
+
+1. Download `HeartMuLa-macOS.dmg`
+2. Open the DMG and drag `HeartMuLa.app` to your Applications folder
+3. Double-click to launch (macOS may show a security warning on first run)
+4. If prompted, go to System Preferences → Security & Privacy → Click "Open Anyway"
+
+### Data Storage
+
+**All data is stored in your user Library folder**, not in the app bundle:
+
+```
+~/Library/Application Support/HeartMuLa/
+├── models/              # AI models (~5GB, auto-downloaded)
+├── generated_audio/     # Your generated music files
+├── ref_audio/           # Uploaded reference audio
+└── jobs.db              # Song history database
+
+~/Library/Logs/HeartMuLa/
+└── (application logs)
+```
+
+This ensures:
+- ✅ App bundle remains read-only (code signing compatible)
+- ✅ Your data persists across app updates
+- ✅ Easy to find and manage your generated music
+- ✅ Standard macOS app behavior
+
+### Features
+
+- **Standalone App**: No Python or Node.js installation required
+- **Apple Metal GPU**: Optimized for M1/M2/M3 and Intel Macs with Metal support
+- **Auto-Download**: Models are automatically downloaded on first launch (~5GB)
+- **Native macOS**: Code-signed and packaged with PyInstaller
+
+### System Requirements
+
+- macOS 10.13 (High Sierra) or later
+- Apple Silicon (M1/M2/M3) or Intel Mac with Metal support
+- 10GB+ RAM
+- 15GB+ free disk space
+
+For more details, see [build/macos/README.md](build/macos/README.md)
+
+## Docker (Recommended for Linux/Windows)
 
 The easiest way to run HeartMuLa Studio - no Python/Node setup required.
 
@@ -515,6 +569,30 @@ Contributions are welcome! Please feel free to:
 3. Commit your changes (`git commit -m 'Add amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
+
+### Building the macOS App
+
+To build the macOS app locally:
+
+```bash
+# Install dependencies
+brew install librsvg imagemagick
+pip install -r requirements_macos.txt
+
+# Build frontend
+cd frontend && npm install && npm run build && cd ..
+
+# Generate icon and build app
+./build/macos/generate_icon.sh
+pyinstaller HeartMuLa.spec --clean --noconfirm
+
+# Sign and package
+cp dist/HeartMuLa.app/Contents/MacOS/HeartMuLa_bin dist/HeartMuLa.app/Contents/MacOS/HeartMuLa
+chmod +x dist/HeartMuLa.app/Contents/MacOS/HeartMuLa
+./build/macos/codesign.sh dist/HeartMuLa.app
+```
+
+The macOS build is automatically created via GitHub Actions when a release is published. See [`.github/workflows/build-macos-release.yml`](.github/workflows/build-macos-release.yml) for details.
 
 ---
 

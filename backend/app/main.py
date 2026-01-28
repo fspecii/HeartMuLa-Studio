@@ -71,10 +71,14 @@ app.add_middleware(
 )
 
 # Static Files (Audio Serving)
-app.mount("/audio", StaticFiles(directory="backend/generated_audio"), name="audio")
+# Use environment variable for generated audio directory (for macOS app support)
+GENERATED_AUDIO_DIR = os.environ.get("HEARTMULA_GENERATED_AUDIO_DIR", "backend/generated_audio")
+os.makedirs(GENERATED_AUDIO_DIR, exist_ok=True)
+app.mount("/audio", StaticFiles(directory=GENERATED_AUDIO_DIR), name="audio")
 
 # Reference Audio Storage
-REF_AUDIO_DIR = "backend/ref_audio"
+# Use environment variable for reference audio directory (for macOS app support)
+REF_AUDIO_DIR = os.environ.get("HEARTMULA_REF_AUDIO_DIR", "backend/ref_audio")
 os.makedirs(REF_AUDIO_DIR, exist_ok=True)
 app.mount("/ref_audio", StaticFiles(directory=REF_AUDIO_DIR), name="ref_audio")
 
@@ -231,9 +235,9 @@ def download_track(job_id: UUID):
         if not job or not job.audio_path:
             raise HTTPException(status_code=404, detail="Track not found")
             
-        # audio_path is "/audio/filename.mp3" -> "backend/generated_audio/filename.mp3"
+        # audio_path is "/audio/filename.mp3" -> use GENERATED_AUDIO_DIR
         filename = job.audio_path.replace("/audio/", "")
-        file_path = f"backend/generated_audio/{filename}"
+        file_path = os.path.join(GENERATED_AUDIO_DIR, filename)
         
         # Sanitize Title for Filename
         import re
@@ -253,10 +257,9 @@ def delete_job(job_id: UUID):
         # Delete audio file if exists
         if job.audio_path:
             # audio_path is like "/audio/filename.mp3"
-            # We need to map it back to "backend/generated_audio/filename.mp3"
+            # Use GENERATED_AUDIO_DIR to find the file
             filename = job.audio_path.replace("/audio/", "")
-            file_path = f"backend/generated_audio/{filename}"
-            import os
+            file_path = os.path.join(GENERATED_AUDIO_DIR, filename)
             if os.path.exists(file_path):
                 try:
                     os.remove(file_path)

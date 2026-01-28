@@ -1,0 +1,161 @@
+name: Build macOS Release
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v0.1.0)'
+        required: true
+        default: 'v0.1.0-macos'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-macos:
+    name: Build macOS Application
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set version from release tag
+      run: |
+        if [ "${{ github.event_name }}" == "release" ]; then
+          # Extract version from release tag (e.g., "v1.0.0" from tag "v1.0.0")
+          VERSION="${{ github.event.release.tag_name }}"
+        else
+          # For workflow_dispatch, use the input version
+          VERSION="${{ github.event.inputs.version }}"
+        fi
+        echo "Setting version to: $VERSION"
+        echo "$VERSION" > VERSION
+        cat VERSION
+      
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        
+    - name: Display Python version
+      run: python --version
+      
+    - name: Install system dependencies for icon generation
+      run: |
+        brew install librsvg imagemagick
+        
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements_macos.txt
+
+    - name: Build frontend
+      run: |
+        cd frontend
+        npm install
+        npm run build
+        cd ..
+        
+    - name: Generate app icon
+      run: |
+        chmod +x build/macos/generate_icon.sh
+        ./build/macos/generate_icon.sh
+
+    - name: Check build/macos assets (icon, codesign, DMG README)
+      run: |
+        if [ ! -f "build/macos/HeartMuLa.icns" ]; then
+          echo "::error::build/macos/HeartMuLa.icns not found after generation."
+          exit 1
+        fi
+        if [ ! -f "build/macos/codesign.sh" ]; then
+          echo "::error::build/macos/codesign.sh not found."
+          exit 1
+        fi
+        if [ ! -f ".github/DMG_README.txt" ]; then
+          echo "::error::.github/DMG_README.txt not found."
+          exit 1
+        fi
+
+    - name: Clean previous PyInstaller outputs
+      run: |
+        rm -rf dist/HeartMuLa.app build/HeartMuLa
+
+    - name: Build with PyInstaller
+      run: |
+        python -m PyInstaller HeartMuLa.spec --clean --noconfirm
+
+    - name: Set up app bundle executable
+      run: |
+        # CFBundleExecutable is "HeartMuLa"; PyInstaller produces HeartMuLa_bin
+        # Copy so the app runs the real binary (native, no terminal)
+        cp dist/HeartMuLa.app/Contents/MacOS/HeartMuLa_bin dist/HeartMuLa.app/Contents/MacOS/HeartMuLa
+        chmod +x dist/HeartMuLa.app/Contents/MacOS/HeartMuLa
+        
+    - name: Code sign the app bundle
+      run: |
+        # Run the code signing script with ad-hoc signing (no certificate required for dev builds)
+        # This prevents the "app is damaged" warning that requires sudo xattr -cr
+        # For production releases, set MACOS_SIGNING_IDENTITY secret to your Developer ID
+        chmod +x build/macos/codesign.sh
+        ./build/macos/codesign.sh dist/HeartMuLa.app
+      env:
+        MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY || '-' }}
+        
+    - name: Create DMG (macOS disk image)
+      run: |
+        # Create a temporary directory for DMG contents
+        mkdir -p dmg_temp
+        cp -R dist/HeartMuLa.app dmg_temp/
+        
+        # Copy the .command file for easy launching
+        cp HeartMuLa.command dmg_temp/
+        chmod +x dmg_temp/HeartMuLa.command
+        
+        # Create Applications symlink for easy drag-and-drop install
+        ln -s /Applications dmg_temp/Applications
+        
+        # Copy README for users
+        cp .github/DMG_README.txt dmg_temp/README.txt
+        
+        # Create DMG
+        hdiutil create -volname "HeartMuLa Studio" \
+          -srcfolder dmg_temp \
+          -ov -format UDZO \
+          HeartMuLa-macOS.dmg
+          
+    - name: Create ZIP archive (alternative distribution)
+      run: |
+        cd dist
+        zip -r ../HeartMuLa-macOS.zip HeartMuLa.app
+        cd ..
+        
+    - name: Calculate checksums
+      run: |
+        shasum -a 256 HeartMuLa-macOS.dmg > checksums.txt
+        shasum -a 256 HeartMuLa-macOS.zip >> checksums.txt
+        cat checksums.txt
+        
+    - name: Upload DMG artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: HeartMuLa-macOS-DMG
+        path: HeartMuLa-macOS.dmg
+        
+    - name: Upload ZIP artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: HeartMuLa-macOS-ZIP
+        path: HeartMuLa-macOS.zip
+        
+    - name: Upload to Release (if triggered by release)
+      if: github.event_name == 'release'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          HeartMuLa-macOS.dmg
+          HeartMuLa-macOS.zip
+          checksums.txt

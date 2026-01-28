@@ -73,6 +73,11 @@ VRAM_MINIMUM = 8.0  # Absolute minimum to run at all
 _default_model_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models")
 DEFAULT_MODEL_DIR = os.environ.get("HEARTMULA_MODEL_DIR", _default_model_dir)
 
+# Generated audio directory - configurable via HEARTMULA_GENERATED_AUDIO_DIR env var
+# For macOS app, this will point to ~/Library/Application Support/HeartMuLa/generated_audio
+_default_audio_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "generated_audio")
+GENERATED_AUDIO_DIR = os.environ.get("HEARTMULA_GENERATED_AUDIO_DIR", _default_audio_dir)
+
 # Settings persistence file - in db directory which is mounted as a volume
 _default_db_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "db")
 SETTINGS_FILE = os.path.join(os.environ.get("HEARTMULA_DB_PATH", _default_db_dir).replace("jobs.db", ""), "settings.json")
@@ -1378,7 +1383,7 @@ class MusicService:
             try:
                 # 3. Create unique filename
                 output_filename = f"song_{job_id_str}.mp3"
-                save_path = os.path.abspath(f"backend/generated_audio/{output_filename}")
+                save_path = os.path.join(GENERATED_AUDIO_DIR, output_filename)
 
                 # Create Cancellation Event
                 import threading
