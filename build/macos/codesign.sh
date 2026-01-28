@@ -24,12 +24,19 @@ echo "Signing identity: $SIGNING_IDENTITY"
 sign_item() {
     local item="$1"
     echo "  Signing: $item"
-    codesign --force --deep --sign "$SIGNING_IDENTITY" \
-        --options runtime \
-        --timestamp \
-        "$item" 2>/dev/null || \
-    codesign --force --deep --sign "$SIGNING_IDENTITY" \
-        "$item"
+    
+    # For ad-hoc signing, don't use runtime option
+    if [ "$SIGNING_IDENTITY" = "-" ]; then
+        codesign --force --deep --sign "$SIGNING_IDENTITY" "$item"
+    else
+        # For real certificates, use runtime hardening with fallback
+        codesign --force --deep --sign "$SIGNING_IDENTITY" \
+            --options runtime \
+            --timestamp \
+            "$item" 2>/dev/null || \
+        codesign --force --deep --sign "$SIGNING_IDENTITY" \
+            "$item"
+    fi
 }
 
 # Sign all dylibs and frameworks first (inside-out signing)

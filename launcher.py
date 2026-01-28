@@ -10,6 +10,8 @@ import sys
 import subprocess
 import webbrowser
 import time
+import shutil
+import threading
 from pathlib import Path
 
 def setup_environment():
@@ -44,7 +46,7 @@ def setup_environment():
     backend_ref_audio = backend_dir / "ref_audio"
     backend_models = backend_dir / "models"
     
-    # Remove existing symlinks/directories and create new ones
+    # Remove existing symlinks/directories/files and create new symlinks
     for link_path, target_path in [
         (backend_generated_audio, generated_audio_dir),
         (backend_ref_audio, ref_audio_dir),
@@ -54,8 +56,10 @@ def setup_environment():
             if link_path.is_symlink():
                 link_path.unlink()
             elif link_path.is_dir():
-                import shutil
                 shutil.rmtree(link_path)
+            else:
+                # Handle regular files
+                link_path.unlink()
         link_path.symlink_to(target_path)
     
     # Set environment variables
@@ -70,8 +74,6 @@ def setup_environment():
 
 def launch_server(app_dir, logs_dir):
     """Launch the FastAPI server."""
-    log_file = logs_dir / "heartmula.log"
-    
     # Import and run the FastAPI app
     sys.path.insert(0, str(app_dir))
     
@@ -84,13 +86,12 @@ def launch_server(app_dir, logs_dir):
         time.sleep(3)
         webbrowser.open("http://localhost:8000")
     
-    import threading
     browser_thread = threading.Thread(target=open_browser, daemon=True)
     browser_thread.start()
     
     # Run the server
     print(f"Starting HeartMuLa Studio server...")
-    print(f"Logs: {log_file}")
+    print(f"Logs directory: {logs_dir}")
     print(f"Opening browser at http://localhost:8000")
     
     uvicorn.run(

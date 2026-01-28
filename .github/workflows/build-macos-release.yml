@@ -52,10 +52,6 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements_macos.txt
-        
-    - name: Install PyInstaller
-      run: |
-        pip install "pyinstaller>=6.0"
 
     - name: Build frontend
       run: |
@@ -69,7 +65,7 @@ jobs:
         chmod +x build/macos/generate_icon.sh
         ./build/macos/generate_icon.sh
 
-    - name: Check build/macos assets (icon, codesign)
+    - name: Check build/macos assets (icon, codesign, DMG README)
       run: |
         if [ ! -f "build/macos/HeartMuLa.icns" ]; then
           echo "::error::build/macos/HeartMuLa.icns not found after generation."
@@ -77,6 +73,10 @@ jobs:
         fi
         if [ ! -f "build/macos/codesign.sh" ]; then
           echo "::error::build/macos/codesign.sh not found."
+          exit 1
+        fi
+        if [ ! -f ".github/DMG_README.txt" ]; then
+          echo "::error::.github/DMG_README.txt not found."
           exit 1
         fi
 

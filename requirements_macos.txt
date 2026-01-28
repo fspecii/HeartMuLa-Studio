@@ -29,7 +29,7 @@ soundfile>=0.12.0
 librosa>=0.10.0
 
 # PyInstaller for macOS App Bundle
-pyinstaller>=6.0
+pyinstaller>=6.0,<7.0
 
-# PyWebView for native macOS UI (optional, for future native UI)
-pywebview>=4.0
+# PyWebView for native macOS UI (optional, for future native UI - not currently used)
+# pywebview>=4.0

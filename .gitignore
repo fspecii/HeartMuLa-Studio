@@ -45,7 +45,7 @@ build/
 *.egg
 
 # PyInstaller
-dist/*.app
+dist/*.app/
 dist/*.zip
 dist/*.dmg
 *.spec.backup

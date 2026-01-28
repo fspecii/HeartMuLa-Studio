@@ -23,7 +23,8 @@ datas += [('backend', 'backend')]
 # Include the frontend build output
 datas += [('frontend/dist', 'frontend/dist')]
 
-# Include the models directory structure (empty, for user to download models)
+# Include the models directory structure (empty placeholders)
+# These will be replaced by symlinks to user directories at runtime by launcher.py
 datas += [('backend/models', 'backend/models')]
 datas += [('backend/generated_audio', 'backend/generated_audio')]
 datas += [('backend/ref_audio', 'backend/ref_audio')]
@@ -70,8 +71,8 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    console=False,
+    upx=False,  # Disabled for macOS - UPX can cause issues with code signing
+    console=False,  # No console window for cleaner UI experience. Check ~/Library/Logs/HeartMuLa/ for logs
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -85,7 +86,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,  # Disabled for macOS - UPX can cause issues with code signing
     upx_exclude=[],
     name=app_name,
 )
