@@ -15,9 +15,16 @@ from pathlib import Path
 import socket
 import urllib.request
 import urllib.error
+import signal
+import atexit
 
 # Single instance lock port
 SINGLE_INSTANCE_PORT = 58765
+
+# Global references for cleanup
+_server_thread = None
+_lock_socket = None
+_uvicorn_server = None
 
 def setup_environment():
     """Set up the macOS app environment."""
@@ -74,6 +81,24 @@ def check_single_instance():
         # Port is already in use - another instance is running
         return None
 
+def cleanup():
+    """Cleanup resources on shutdown."""
+    global _lock_socket, _uvicorn_server
+    
+    print("\nCleaning up resources...")
+    
+    # Close the lock socket
+    if _lock_socket:
+        try:
+            _lock_socket.close()
+            print("✓ Released instance lock")
+        except:
+            pass
+    
+    # Note: Server thread is daemon and will be terminated automatically
+    print("✓ Server shutdown initiated")
+    print("Goodbye!")
+
 def wait_for_server(url='http://127.0.0.1:8000/health', timeout=30):
     """Wait for the server to be ready by polling the health endpoint."""
     print("Waiting for server to start...")
@@ -92,6 +117,8 @@ def wait_for_server(url='http://127.0.0.1:8000/health', timeout=30):
 
 def launch_server(app_dir, logs_dir):
     """Launch the FastAPI server."""
+    global _server_thread
+    
     # Import and run the FastAPI app
     sys.path.insert(0, str(app_dir))
     
@@ -112,8 +139,8 @@ def launch_server(app_dir, logs_dir):
             access_log=True
         )
     
-    server_thread = threading.Thread(target=run_server, daemon=True)
-    server_thread.start()
+    _server_thread = threading.Thread(target=run_server, daemon=True)
+    _server_thread.start()
     
     # Wait for server to be ready
     wait_for_server()
@@ -124,7 +151,7 @@ def launch_server(app_dir, logs_dir):
         print("Opening HeartMuLa Studio window...")
         
         # Create window with custom settings
-        webview.create_window(
+        window = webview.create_window(
             'HeartMuLa Studio',
             'http://127.0.0.1:8000',
             width=1400,
@@ -133,11 +160,21 @@ def launch_server(app_dir, logs_dir):
             fullscreen=False,
             min_size=(800, 600),
             background_color='#1a1a1a',
-            text_select=True
+            text_select=True,
+            on_top=False,  # Keep in foreground but not always on top
+            focus=True     # Get focus on creation
         )
         
+        # Register cleanup handler
+        atexit.register(cleanup)
+        
         # Start the webview - this blocks until window is closed
-        webview.start()
+        # When window closes, this returns and the program continues to cleanup
+        webview.start(gui='cocoa')  # Explicitly use Cocoa for macOS
+        
+        # Window has been closed, trigger cleanup and exit
+        print("\nWindow closed by user")
+        cleanup()
         
     except ImportError:
         print("Warning: pywebview not available, falling back to browser")
@@ -157,23 +194,31 @@ def launch_server(app_dir, logs_dir):
 
 def main():
     """Main entry point."""
+    global _lock_socket
+    
     try:
         # Check if another instance is already running
-        lock_socket = check_single_instance()
-        if lock_socket is None:
+        _lock_socket = check_single_instance()
+        if _lock_socket is None:
             print("Another instance of HeartMuLa Studio is already running.")
             print("Only one instance can be opened at a time.")
             sys.exit(0)
         
         app_dir, logs_dir = setup_environment()
         launch_server(app_dir, logs_dir)
+        
+        # If we reach here, the window was closed gracefully
+        sys.exit(0)
+        
     except KeyboardInterrupt:
         print("\nShutting down HeartMuLa Studio...")
+        cleanup()
         sys.exit(0)
     except Exception as e:
         print(f"Error starting HeartMuLa Studio: {e}")
         import traceback
         traceback.print_exc()
+        cleanup()
         sys.exit(1)
 
 if __name__ == "__main__":
