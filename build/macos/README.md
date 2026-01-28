@@ -170,7 +170,7 @@ pip install pyinstaller
 Common issues:
 - **Missing backend/models directory**: Fixed in latest version (directory created with .gitkeep)
 - **Transformers version conflict**: requirements_macos.txt now constrains to `<4.57.0` to avoid yanked version
-- **Triton not found**: Added to requirements with platform constraint (skipped on Apple Silicon)
+- **Triton platform compatibility**: Triton is not compatible with Apple Silicon. The dependency includes a platform constraint to skip installation on ARM64 Macs.
 
 ### App won't open
 

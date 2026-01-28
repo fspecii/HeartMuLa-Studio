@@ -5,8 +5,6 @@
 #  Can run on Linux to check before macOS build
 # ---------------------------------------------------------------------------
 
-set -e  # Exit on error
-
 echo "=========================================="
 echo "HeartMuLa Studio - Build Validation"
 echo "=========================================="

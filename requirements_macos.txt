@@ -36,10 +36,11 @@ librosa>=0.10.0
 # Note: Not available on Apple Silicon - will be skipped gracefully
 triton>=2.0.0; platform_machine != "arm64"
 
-# Optional: Advanced ML dependencies (may be required by heartlib)
-# These are optional and will be imported with try/except in the codebase
-# mamba-ssm  # Uncomment if needed by heartlib
-# tensorboard  # Uncomment if needed for training/logging
+# Optional: Advanced ML dependencies
+# These are optional for the application and imported with try/except in the codebase
+# Uncomment only if you encounter import errors during runtime
+# mamba-ssm  # Uncomment if heartlib requires mamba-ssm for specific features
+# tensorboard  # Uncomment if you need TensorBoard logging capabilities
 
 # PyInstaller for macOS App Bundle
 pyinstaller>=6.0,<7.0
