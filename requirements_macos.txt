@@ -24,8 +24,8 @@ torchaudio>=2.0.0
 # HeartLib - AI Music Generation Engine
 heartlib @ git+https://github.com/HeartMuLa/heartlib.git
 
-# Transformers (constrain to avoid yanked 4.57.0)
-transformers>=4.35.0,<4.57.0
+# Transformers
+transformers>=4.35.0
 
 # Audio Processing
 soundfile>=0.12.0
