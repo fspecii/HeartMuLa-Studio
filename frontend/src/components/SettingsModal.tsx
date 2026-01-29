@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { X, Cpu, RefreshCw, AlertTriangle, Check, Settings2, Globe, Key, CheckCircle, XCircle } from 'lucide-react';
+import { X, Cpu, RefreshCw, AlertTriangle, Check, Settings2, Globe, Key, CheckCircle, XCircle, Terminal } from 'lucide-react';
+import { LogViewer } from './LogViewer';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { GPUStatus, StartupStatus, GPUSettings, LLMSettings } from '../api';
 
@@ -61,6 +62,7 @@ export function SettingsModal({
     const [hasLLMChanges, setHasLLMChanges] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [saveLLMSuccess, setSaveLLMSuccess] = useState(false);
+    const [logViewerOpen, setLogViewerOpen] = useState(false);
 
     // Load current settings when modal opens
     useEffect(() => {
@@ -207,6 +209,7 @@ export function SettingsModal({
     }`;
 
     return (
+        <>
         <AnimatePresence>
             {isOpen && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -233,19 +236,38 @@ export function SettingsModal({
                             darkMode ? 'border-[#282828]' : 'border-slate-200'
                         }`}>
                             <div className="flex items-center gap-3">
-                                <Settings2 className={`w-5 h-5 ${darkMode ? 'text-[#1DB954]' : 'text-cyan-500'}`} />
-                                <h2 className={`text-lg font-semibold ${darkMode ? 'text-white' : 'text-slate-900'}`}>
+                                <Settings2 className={`w-5 h-5 ${
+                                    darkMode ? 'text-white' : 'text-gray-900'
+                                }`} />
+                                <h2 className={`text-xl font-semibold ${
+                                    darkMode ? 'text-white' : 'text-gray-900'
+                                }`}>
                                     Settings
                                 </h2>
                             </div>
-                            <button
-                                onClick={onClose}
-                                className={`p-2 rounded-full transition-colors ${
-                                    darkMode ? 'hover:bg-[#282828] text-[#b3b3b3]' : 'hover:bg-slate-100 text-slate-500'
-                                }`}
-                            >
-                                <X className="w-5 h-5" />
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setLogViewerOpen(true)}
+                                    className={`p-2 rounded-lg transition-colors ${
+                                        darkMode
+                                            ? 'hover:bg-[#282828] text-gray-400 hover:text-white'
+                                            : 'hover:bg-gray-100 text-gray-600 hover:text-gray-900'
+                                    }`}
+                                    title="View console logs"
+                                >
+                                    <Terminal className="w-5 h-5" />
+                                </button>
+                                <button
+                                    onClick={onClose}
+                                    className={`p-2 rounded-lg transition-colors ${
+                                        darkMode
+                                            ? 'hover:bg-[#282828] text-gray-400 hover:text-white'
+                                            : 'hover:bg-gray-100 text-gray-600 hover:text-gray-900'
+                                    }`}
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
                         </div>
 
                         {/* Content */}
@@ -710,5 +732,13 @@ export function SettingsModal({
                 </div>
             )}
         </AnimatePresence>
+        
+        {/* Log Viewer - separate AnimatePresence */}
+        <LogViewer
+            isOpen={logViewerOpen}
+            onClose={() => setLogViewerOpen(false)}
+            darkMode={darkMode}
+        />
+        </>
     );
 }

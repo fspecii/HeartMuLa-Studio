@@ -305,12 +305,47 @@ def ensure_models_downloaded(model_dir: str = DEFAULT_MODEL_DIR, version: str = 
     tokenizer_path = os.path.join(model_dir, "tokenizer.json")
     gen_config_path = os.path.join(model_dir, "gen_config.json")
 
-    all_present = (
+    # Check if all basic directories and files exist
+    basic_present = (
         os.path.exists(heartmula_path) and
         os.path.exists(heartcodec_path) and
         os.path.isfile(tokenizer_path) and
         os.path.isfile(gen_config_path)
     )
+    
+    # Additionally check if all model shard files are present
+    # This prevents issues with incomplete downloads
+    all_shards_present = True
+    if basic_present:
+        # Check for model index file to determine required shards
+        index_file = os.path.join(heartmula_path, "model.safetensors.index.json")
+        if os.path.isfile(index_file):
+            try:
+                import json
+                with open(index_file, 'r') as f:
+                    index_data = json.load(f)
+                # Extract unique shard filenames from weight_map
+                required_shards = set(index_data.get("weight_map", {}).values())
+                # Check if all shard files exist
+                for shard_file in required_shards:
+                    shard_path = os.path.join(heartmula_path, shard_file)
+                    if not os.path.isfile(shard_path):
+                        logger.warning(f"Missing model shard: {shard_file}")
+                        print(f"[Models] Missing model shard: {shard_file}", flush=True)
+                        all_shards_present = False
+                        break
+            except Exception as e:
+                logger.warning(f"Failed to check model shards: {e}")
+                # If we can't read the index, assume incomplete and re-download
+                all_shards_present = False
+        else:
+            # No index file means single-file model or incomplete download
+            # Check for common single-file patterns
+            single_file_patterns = ["model.safetensors", "pytorch_model.bin", "model.bin"]
+            if not any(os.path.isfile(os.path.join(heartmula_path, p)) for p in single_file_patterns):
+                all_shards_present = False
+
+    all_present = basic_present and all_shards_present
 
     if all_present:
         logger.info(f"All models found at {model_dir}")
@@ -328,7 +363,34 @@ def ensure_models_downloaded(model_dir: str = DEFAULT_MODEL_DIR, version: str = 
     print(f"[Models] This may take a while on first run (~5GB download)...", flush=True)
 
     # Download HeartMuLa model
-    if not os.path.exists(heartmula_path):
+    # Check if directory exists AND all shards are present
+    need_download_mula = not os.path.exists(heartmula_path)
+    if not need_download_mula:
+        # Check if all shards are present
+        index_file = os.path.join(heartmula_path, "model.safetensors.index.json")
+        if os.path.isfile(index_file):
+            try:
+                import json
+                with open(index_file, 'r') as f:
+                    index_data = json.load(f)
+                required_shards = set(index_data.get("weight_map", {}).values())
+                for shard_file in required_shards:
+                    if not os.path.isfile(os.path.join(heartmula_path, shard_file)):
+                        logger.info(f"Model directory exists but missing shard {shard_file}, re-downloading...")
+                        print(f"[Models] Model directory exists but missing shards, re-downloading...", flush=True)
+                        need_download_mula = True
+                        break
+            except Exception:
+                need_download_mula = True
+    
+    if need_download_mula:
+        # Remove incomplete directory if it exists
+        if os.path.exists(heartmula_path):
+            import shutil
+            logger.info(f"Removing incomplete model directory: {heartmula_path}")
+            print(f"[Models] Removing incomplete model directory...", flush=True)
+            shutil.rmtree(heartmula_path, ignore_errors=True)
+        
         print(f"[Models] Downloading {hf_repo}...", flush=True)
         snapshot_download(
             repo_id=hf_repo,
@@ -947,12 +1009,47 @@ class MusicService:
         tokenizer_path = os.path.join(model_dir, "tokenizer.json")
         gen_config_path = os.path.join(model_dir, "gen_config.json")
 
-        all_present = (
+        # Check if all basic directories and files exist
+        basic_present = (
             os.path.exists(heartmula_path) and
             os.path.exists(heartcodec_path) and
             os.path.isfile(tokenizer_path) and
             os.path.isfile(gen_config_path)
         )
+        
+        # Additionally check if all model shard files are present
+        # This prevents issues with incomplete downloads
+        all_shards_present = True
+        if basic_present:
+            # Check for model index file to determine required shards
+            index_file = os.path.join(heartmula_path, "model.safetensors.index.json")
+            if os.path.isfile(index_file):
+                try:
+                    import json
+                    with open(index_file, 'r') as f:
+                        index_data = json.load(f)
+                    # Extract unique shard filenames from weight_map
+                    required_shards = set(index_data.get("weight_map", {}).values())
+                    # Check if all shard files exist
+                    for shard_file in required_shards:
+                        shard_path = os.path.join(heartmula_path, shard_file)
+                        if not os.path.isfile(shard_path):
+                            logger.warning(f"Missing model shard: {shard_file}")
+                            print(f"[Models] Missing model shard: {shard_file}", flush=True)
+                            all_shards_present = False
+                            break
+                except Exception as e:
+                    logger.warning(f"Failed to check model shards: {e}")
+                    # If we can't read the index, assume incomplete and re-download
+                    all_shards_present = False
+            else:
+                # No index file means single-file model or incomplete download
+                # Check for common single-file patterns
+                single_file_patterns = ["model.safetensors", "pytorch_model.bin", "model.bin"]
+                if not any(os.path.isfile(os.path.join(heartmula_path, p)) for p in single_file_patterns):
+                    all_shards_present = False
+
+        all_present = basic_present and all_shards_present
 
         if all_present:
             self._emit_startup_progress("downloading", 40, "All models found locally")
@@ -961,30 +1058,128 @@ class MusicService:
         loop = asyncio.get_running_loop()
 
         # Download HeartMuLa model
-        if not os.path.exists(heartmula_path):
+        # Check if directory exists AND all shards are present
+        need_download_mula = not os.path.exists(heartmula_path)
+        if not need_download_mula:
+            # Check if all shards are present
+            index_file = os.path.join(heartmula_path, "model.safetensors.index.json")
+            if os.path.isfile(index_file):
+                try:
+                    import json
+                    with open(index_file, 'r') as f:
+                        index_data = json.load(f)
+                    required_shards = set(index_data.get("weight_map", {}).values())
+                    for shard_file in required_shards:
+                        if not os.path.isfile(os.path.join(heartmula_path, shard_file)):
+                            logger.info(f"Model directory exists but missing shard {shard_file}, re-downloading...")
+                            print(f"[Models] Model directory exists but missing shards, re-downloading...", flush=True)
+                            need_download_mula = True
+                            break
+                except Exception:
+                    need_download_mula = True
+        
+        if need_download_mula:
+            # Remove incomplete directory if it exists
+            if os.path.exists(heartmula_path):
+                import shutil
+                logger.info(f"Removing incomplete model directory: {heartmula_path}")
+                print(f"[Models] Removing incomplete model directory...", flush=True)
+                shutil.rmtree(heartmula_path, ignore_errors=True)
+            
             self._emit_startup_progress("downloading", 10, f"Downloading {folder_name} (~3GB)...")
-            await loop.run_in_executor(
-                None,
-                lambda: snapshot_download(
-                    repo_id=hf_repo,
-                    local_dir=heartmula_path,
-                    local_dir_use_symlinks=False,
-                )
-            )
-            self._emit_startup_progress("downloading", 28, f"{folder_name} downloaded")
+            
+            # Download with error handling and timeout
+            def download_with_progress():
+                try:
+                    print(f"[Models] Starting download of {hf_repo} to {heartmula_path}", flush=True)
+                    logger.info(f"Downloading {hf_repo} to {heartmula_path}")
+                    
+                    # Monitor download progress by checking file creation
+                    import time
+                    start_time = time.time()
+                    last_file_count = 0
+                    
+                    def check_progress():
+                        nonlocal last_file_count
+                        if os.path.exists(heartmula_path):
+                            current_files = len([f for f in os.listdir(heartmula_path) if os.path.isfile(os.path.join(heartmula_path, f))])
+                            if current_files > last_file_count:
+                                elapsed = int(time.time() - start_time)
+                                print(f"[Models] Download progress: {current_files} files downloaded ({elapsed}s elapsed)", flush=True)
+                                last_file_count = current_files
+                    
+                    # Start download
+                    print(f"[Models] Calling snapshot_download...", flush=True)
+                    snapshot_download(
+                        repo_id=hf_repo,
+                        local_dir=heartmula_path,
+                        local_dir_use_symlinks=False,
+                        resume_download=True,  # Resume if interrupted
+                    )
+                    print(f"[Models] snapshot_download completed", flush=True)
+                    
+                    # Verify download completed
+                    index_file = os.path.join(heartmula_path, "model.safetensors.index.json")
+                    if os.path.isfile(index_file):
+                        import json
+                        with open(index_file, 'r') as f:
+                            index_data = json.load(f)
+                        required_shards = set(index_data.get("weight_map", {}).values())
+                        missing_shards = []
+                        for shard_file in required_shards:
+                            if not os.path.isfile(os.path.join(heartmula_path, shard_file)):
+                                missing_shards.append(shard_file)
+                        
+                        if missing_shards:
+                            raise RuntimeError(f"Download incomplete: missing shards {missing_shards}")
+                        else:
+                            print(f"[Models] Download verified: all {len(required_shards)} shards present", flush=True)
+                    
+                    return True
+                except Exception as e:
+                    error_msg = f"Failed to download {folder_name}: {e}"
+                    logger.error(error_msg)
+                    print(f"[Models] ERROR: {error_msg}", flush=True)
+                    import traceback
+                    traceback.print_exc()
+                    raise
+            
+            try:
+                await loop.run_in_executor(None, download_with_progress)
+                self._emit_startup_progress("downloading", 28, f"{folder_name} downloaded")
+            except Exception as e:
+                error_msg = f"Failed to download model: {str(e)}"
+                logger.error(error_msg)
+                self._emit_startup_progress("error", 0, error_msg, error_msg)
+                raise
 
         # Download HeartCodec model
         if not os.path.exists(heartcodec_path):
             self._emit_startup_progress("downloading", 30, "Downloading HeartCodec (~1.5GB)...")
-            await loop.run_in_executor(
-                None,
-                lambda: snapshot_download(
-                    repo_id=HF_HEARTCODEC_REPO,
-                    local_dir=heartcodec_path,
-                    local_dir_use_symlinks=False,
-                )
-            )
-            self._emit_startup_progress("downloading", 38, "HeartCodec downloaded")
+            
+            def download_codec():
+                try:
+                    snapshot_download(
+                        repo_id=HF_HEARTCODEC_REPO,
+                        local_dir=heartcodec_path,
+                        local_dir_use_symlinks=False,
+                    )
+                    return True
+                except Exception as e:
+                    logger.error(f"Failed to download HeartCodec: {e}")
+                    print(f"[Models] ERROR downloading HeartCodec: {e}", flush=True)
+                    import traceback
+                    traceback.print_exc()
+                    raise
+            
+            try:
+                await loop.run_in_executor(None, download_codec)
+                self._emit_startup_progress("downloading", 38, "HeartCodec downloaded")
+            except Exception as e:
+                error_msg = f"Failed to download HeartCodec: {str(e)}"
+                logger.error(error_msg)
+                self._emit_startup_progress("error", 0, error_msg, error_msg)
+                raise
 
         # Download tokenizer and gen_config
         if not os.path.isfile(tokenizer_path):
@@ -1242,20 +1437,84 @@ class MusicService:
                 logger.warning("4-bit quantization is not supported on MPS. Using full precision instead.")
                 print("[Apple Metal] WARNING: 4-bit quantization not supported on MPS, using full precision", flush=True)
             
-            # MPS doesn't support bfloat16, use float32 instead
-            pipeline = HeartMuLaGenPipeline.from_pretrained(
-                model_path,
-                device={
-                    "mula": torch.device("mps"),
-                    "codec": torch.device("mps"),
-                },
-                dtype={
-                    "mula": torch.float32,
-                    "codec": torch.float32,
-                },
-                version=version,
-            )
-            return patch_pipeline_with_callback(pipeline, sequential_offload=False)
+            # Disable caching allocator warmup for MPS devices
+            # MPS doesn't support large buffer allocations (>2GB) that transformers tries to allocate
+            # This prevents "Invalid buffer size: 14.67 GB" error
+            # Monkey-patch the caching_allocator_warmup function to skip for MPS
+            try:
+                from transformers.modeling_utils import caching_allocator_warmup
+                original_warmup = caching_allocator_warmup
+                
+                def patched_warmup(model, device_map, hf_quantizer):
+                    """Skip caching allocator warmup for MPS devices to avoid 'Invalid buffer size' error."""
+                    # Check if MPS is available and being used
+                    if is_mps_available():
+                        # Check device_map for MPS devices
+                        devices_to_check = []
+                        if isinstance(device_map, dict):
+                            devices_to_check = list(device_map.values())
+                        elif isinstance(device_map, (str, torch.device)):
+                            devices_to_check = [device_map]
+                        
+                        # Check if any device is MPS
+                        for dev in devices_to_check:
+                            dev_str = str(dev).lower()
+                            if 'mps' in dev_str or (isinstance(dev, torch.device) and dev.type == 'mps'):
+                                logger.info("[MPS] Skipping caching allocator warmup (MPS doesn't support large buffers)")
+                                print("[Apple Metal] Skipping caching allocator warmup for MPS compatibility", flush=True)
+                                return
+                        
+                        # Also check model's device attribute
+                        if hasattr(model, 'device'):
+                            model_dev = getattr(model, 'device', None)
+                            if isinstance(model_dev, torch.device) and model_dev.type == 'mps':
+                                logger.info("[MPS] Skipping caching allocator warmup (model on MPS)")
+                                print("[Apple Metal] Skipping caching allocator warmup for MPS compatibility", flush=True)
+                                return
+                    
+                    # For non-MPS devices, call original function
+                    try:
+                        return original_warmup(model, device_map, hf_quantizer)
+                    except RuntimeError as e:
+                        # If we get "Invalid buffer size" error, it might be MPS-related
+                        if "Invalid buffer size" in str(e) and is_mps_available():
+                            logger.warning(f"[MPS] Caching allocator warmup failed: {e}. Continuing without warmup.")
+                            print(f"[Apple Metal] Caching allocator warmup failed, continuing without warmup", flush=True)
+                            return
+                        raise
+                
+                # Apply monkey-patch
+                import transformers.modeling_utils
+                transformers.modeling_utils.caching_allocator_warmup = patched_warmup
+                print("[Apple Metal] Patched caching allocator warmup to skip for MPS", flush=True)
+            except Exception as e:
+                logger.warning(f"Failed to patch caching allocator warmup: {e}. Trying environment variable instead.")
+                # Fallback: try environment variable
+                os.environ["HF_HUB_DISABLE_CACHING_ALLOCATOR_WARMUP"] = "1"
+            
+            try:
+                # MPS doesn't support bfloat16, use float32 instead
+                pipeline = HeartMuLaGenPipeline.from_pretrained(
+                    model_path,
+                    device={
+                        "mula": torch.device("mps"),
+                        "codec": torch.device("mps"),
+                    },
+                    dtype={
+                        "mula": torch.float32,
+                        "codec": torch.float32,
+                    },
+                    version=version,
+                )
+                return patch_pipeline_with_callback(pipeline, sequential_offload=False)
+            finally:
+                # Restore original function if we patched it
+                try:
+                    if 'original_warmup' in locals():
+                        import transformers.modeling_utils
+                        transformers.modeling_utils.caching_allocator_warmup = original_warmup
+                except Exception:
+                    pass
 
         # Handle CPU-only mode (no CUDA or MPS available)
         if device_type == "cpu":

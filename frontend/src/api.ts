@@ -84,6 +84,8 @@ export interface LLMSettings {
 }
 
 export const api = {
+    getBaseUrl: () => API_BASE_URL,
+    
     checkHealth: async () => {
         const res = await axios.get(`${API_BASE_URL}/health`);
         return res.data;

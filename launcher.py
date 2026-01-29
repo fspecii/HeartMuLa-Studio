@@ -130,10 +130,36 @@ def launch_server(app_dir, logs_dir):
     import uvicorn
     from backend.app.main import app
     
+    # Set up log file to capture all output
+    log_file_path = logs_dir / "console.log"
+    
+    # Custom print wrapper that writes to both stdout and log file
+    import builtins
+    _original_print = builtins.print
+    
+    def _logged_print(*args, **kwargs):
+        """Print that also writes to log file."""
+        # Call original print
+        _original_print(*args, **kwargs)
+        # Also write to log file
+        try:
+            with open(log_file_path, 'a', encoding='utf-8') as f:
+                from datetime import datetime
+                msg = ' '.join(str(arg) for arg in args)
+                if msg.strip():
+                    f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} [INFO] {msg}\n")
+                    f.flush()
+        except Exception:
+            pass
+    
+    # Replace print temporarily for server thread
+    builtins.print = _logged_print
+    
     # Run the server in a thread so pywebview can take control of main thread
     def run_server():
         print(f"Starting HeartMuLa Studio server...")
         print(f"Logs directory: {logs_dir}")
+        print(f"Console log file: {log_file_path}")
         
         uvicorn.run(
             app,

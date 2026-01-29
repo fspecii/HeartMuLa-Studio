@@ -21,8 +21,11 @@ from backend.app.models import (
     GPUSettingsRequest, GPUSettingsResponse, GPUStatusResponse, StartupStatusResponse, ModelReloadResponse,
     LLMSettingsRequest, LLMSettingsResponse
 )
-from backend.app.services.music_service import music_service
+from backend.app.services.music_service import music_service, event_manager
 from backend.app.services.llm_service import LLMService
+import logging
+import sys
+from pathlib import Path
 
 # Database - configurable path for Docker support
 sqlite_file_name = os.environ.get("HEARTMULA_DB_PATH", "backend/jobs.db")
@@ -289,7 +292,44 @@ def cancel_job(job_id: UUID):
     raise HTTPException(status_code=400, detail="Job not active or already completed")
 
 from fastapi.responses import StreamingResponse
-from backend.app.services.music_service import event_manager
+
+# Log file path - same as launcher.py uses
+LOG_DIR = Path.home() / "Library" / "Logs" / "HeartMuLa"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = LOG_DIR / "console.log"
+
+# Custom log handler that publishes to event manager for real-time viewing
+class EventManagerLogHandler(logging.Handler):
+    """Log handler that publishes log messages to the event manager."""
+    
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            event_manager.publish("log", {
+                "level": record.levelname,
+                "message": msg,
+                "module": record.module,
+                "funcName": record.funcName,
+                "lineno": record.lineno
+            })
+        except Exception:
+            pass  # Don't let logging errors break the app
+
+# Set up logging to file and event manager
+file_handler = logging.FileHandler(LOG_FILE, mode='a', encoding='utf-8')
+file_handler.setLevel(logging.INFO)
+file_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+file_handler.setFormatter(file_formatter)
+
+event_handler = EventManagerLogHandler()
+event_handler.setLevel(logging.INFO)
+event_handler.setFormatter(file_formatter)
+
+# Add handlers to root logger
+root_logger = logging.getLogger()
+root_logger.addHandler(file_handler)
+root_logger.addHandler(event_handler)
+root_logger.setLevel(logging.INFO)
 
 @app.get("/events")
 async def events():
@@ -317,6 +357,59 @@ async def events():
             event_manager.unsubscribe(q)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+@app.get("/logs")
+async def get_logs(lines: int = 500):
+    """Get recent log lines from the console log file."""
+    try:
+        if not LOG_FILE.exists():
+            return {"logs": [], "message": "Log file not found"}
+        
+        # Read last N lines from log file
+        with open(LOG_FILE, 'r', encoding='utf-8') as f:
+            all_lines = f.readlines()
+            recent_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
+        
+        return {"logs": [line.strip() for line in recent_lines if line.strip()]}
+    except Exception as e:
+        return {"logs": [], "error": str(e)}
+
+@app.get("/logs/stream")
+async def stream_logs():
+    """Stream log file updates in real-time."""
+    async def log_generator():
+        # First, send existing log content
+        if LOG_FILE.exists():
+            try:
+                with open(LOG_FILE, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                    for line in lines[-100:]:  # Last 100 lines
+                        if line.strip():
+                            yield f"data: {line.strip()}\n\n"
+            except Exception:
+                pass
+        
+        # Then subscribe to new log events via event manager
+        q = event_manager.subscribe()
+        try:
+            while True:
+                try:
+                    data = await asyncio.wait_for(q.get(), timeout=1.0)
+                    if "event: shutdown" in data:
+                        break
+                    # Filter for log events
+                    if "event: log" in data:
+                        yield data
+                except asyncio.TimeoutError:
+                    continue
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+        finally:
+            event_manager.unsubscribe(q)
+    
+    return StreamingResponse(log_generator(), media_type="text/event-stream")
 
 
 # ============== LIKES (Favorites) ==============
