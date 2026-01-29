@@ -55,6 +55,7 @@ def setup_environment():
     os.environ["HEARTMULA_GENERATED_AUDIO_DIR"] = str(generated_audio_dir)
     os.environ["HEARTMULA_REF_AUDIO_DIR"] = str(ref_audio_dir)
     os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"  # Enable Metal Performance Shaders
+    os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"  # Disable MPS memory limit to prevent OOM errors
     
     # Change working directory to app bundle for frontend serving
     # Backend will use absolute paths from environment variables

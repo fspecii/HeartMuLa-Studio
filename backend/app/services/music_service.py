@@ -1858,6 +1858,7 @@ class MusicService:
 
                 def _run_pipeline():
                     os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+                    os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
 
                     sound_tags = request.tags if request.tags and request.tags.strip() else "pop music"
 
