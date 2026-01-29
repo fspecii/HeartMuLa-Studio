@@ -16,6 +16,18 @@ from heartlib.heartmula.modeling_heartmula import HeartMuLa
 from heartlib.heartcodec.modeling_heartcodec import HeartCodec
 from tokenizers import Tokenizer
 
+# Configure MPS (Apple Metal) for optimal performance
+# Note: PYTORCH_ENABLE_MPS_FALLBACK can be set at runtime for fallback behavior
+if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+    # Enable MPS fallback to CPU for unsupported operations (better than crashing)
+    # This takes effect for subsequent tensor operations
+    os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+    # Note: MPS is already using Metal under the hood, no additional config needed
+    logger_temp = logging.getLogger(__name__)
+    logger_temp.info("[MPS] Apple Metal GPU acceleration enabled")
+    print("[MPS] Apple Metal GPU acceleration enabled with CPU fallback for unsupported ops", flush=True)
+
+
 # Optional: 4-bit quantization support
 try:
     from transformers import BitsAndBytesConfig
@@ -100,7 +112,7 @@ def get_autocast_context(device_type: str, dtype: torch.dtype):
     
     PyTorch's autocast only supports 'cuda', 'cpu', and 'xpu' device types.
     For MPS (Apple Metal), autocast is not supported, so we use a nullcontext (no-op).
-    Since MPS pipelines already use float32, no autocast is needed.
+    MPS pipelines use float16 precision which is optimal for the hardware.
     
     Args:
         device_type: Device type string ('cuda', 'cpu', 'mps', 'xpu')
@@ -110,7 +122,7 @@ def get_autocast_context(device_type: str, dtype: torch.dtype):
         Context manager for autocast or nullcontext for unsupported devices
     """
     # torch.autocast doesn't support MPS device type
-    # MPS pipelines already use float32, so autocast is not needed
+    # MPS pipelines use float16 directly, which is optimal for the hardware
     if device_type == 'mps':
         return nullcontext()
     
@@ -149,7 +161,7 @@ def detect_optimal_gpu_config() -> dict:
     elif is_mps_available():
         result["device_type"] = "mps"
         result["num_gpus"] = 1
-        result["use_quantization"] = False  # MPS works better with full precision
+        result["use_quantization"] = False  # MPS works better with full precision (float16)
         result["use_sequential_offload"] = False  # Unified memory architecture
         result["config_name"] = "Apple Metal (MPS)"
         result["gpu_info"] = {
@@ -162,6 +174,7 @@ def detect_optimal_gpu_config() -> dict:
         }
         print(f"\n[Auto-Config] Using Apple Metal (MPS) device", flush=True)
         print(f"[Auto-Config] MPS uses unified memory - no VRAM limits", flush=True)
+        print(f"[Auto-Config] MPS will use float16 precision for optimal performance", flush=True)
         return result
     # No GPU available - fall back to CPU
     else:
@@ -716,6 +729,9 @@ def patch_pipeline_with_callback(pipeline: HeartMuLaGenPipeline, sequential_offl
         topk = kwargs.get("topk", 50)
         save_path = kwargs.get("save_path", "output.mp3")
 
+        # Log device info for debugging
+        print(f"[Generation] Starting generation on device: {pipeline.mula_device} (dtype: {pipeline.mula_dtype})", flush=True)
+        
         # Preprocess
         model_inputs = pipeline.preprocess(inputs, cfg_scale=cfg_scale)
 
@@ -812,13 +828,17 @@ def patch_pipeline_with_callback(pipeline: HeartMuLaGenPipeline, sequential_offl
             print("[Lazy Loading] Loading HeartCodec for decoding...", flush=True)
             codec_path = getattr(pipeline, '_codec_path', None)
             if codec_path:
+                # Use the same dtype as specified in the pipeline for consistency
+                codec_dtype = getattr(pipeline, 'codec_dtype', torch.float32)
                 pipeline._codec = HeartCodec.from_pretrained(
                     codec_path,
                     device_map=pipeline.codec_device,
-                    dtype=torch.float32,
+                    dtype=codec_dtype,
                 )
                 if torch.cuda.is_available():
                     print(f"[Lazy Loading] HeartCodec loaded. VRAM: {torch.cuda.memory_allocated()/1024**3:.2f}GB", flush=True)
+                elif is_mps_available():
+                    print(f"[Lazy Loading] HeartCodec loaded on MPS with dtype {codec_dtype}", flush=True)
             else:
                 raise RuntimeError("Cannot load HeartCodec: codec_path not available")
 
@@ -1518,7 +1538,9 @@ class MusicService:
                 os.environ["HF_HUB_DISABLE_CACHING_ALLOCATOR_WARMUP"] = "1"
             
             try:
-                # MPS doesn't support bfloat16, use float32 instead
+                # IMPORTANT: For MPS, we need to use float16 (not float32) for optimal performance
+                # MPS has native support for float16 operations which are much faster than float32
+                print("[Apple Metal] Loading models with float16 precision for optimal MPS performance", flush=True)
                 pipeline = HeartMuLaGenPipeline.from_pretrained(
                     model_path,
                     device={
@@ -1526,11 +1548,62 @@ class MusicService:
                         "codec": torch.device("mps"),
                     },
                     dtype={
-                        "mula": torch.float32,
-                        "codec": torch.float32,
+                        "mula": torch.float16,  # Use float16 for MPS acceleration
+                        "codec": torch.float16,  # Use float16 for MPS acceleration
                     },
                     version=version,
                 )
+                
+                # Verify models are on MPS and explicitly set device attributes
+                mps_device = torch.device("mps")
+                
+                # Ensure pipeline device attributes are set correctly
+                pipeline.mula_device = mps_device
+                pipeline.codec_device = mps_device
+                pipeline.mula_dtype = torch.float16
+                pipeline.codec_dtype = torch.float16
+                
+                # Verify and correct model device placement
+                # Note: Accessing _mula and _codec (private attributes) is necessary here
+                # because the pipeline library doesn't provide public methods for device verification
+                if hasattr(pipeline, '_mula') and pipeline._mula is not None:
+                    try:
+                        # Get first parameter's device, or handle case where model has no parameters
+                        mula_params = list(pipeline._mula.parameters())
+                        if mula_params:
+                            mula_device = mula_params[0].device
+                            print(f"[Apple Metal] HeartMuLa model device: {mula_device}", flush=True)
+                            if mula_device.type != 'mps':
+                                logger.warning(f"[MPS] HeartMuLa model is on {mula_device}, not MPS! This will be slow.")
+                                print(f"[Apple Metal] WARNING: HeartMuLa is on {mula_device}, moving to MPS...", flush=True)
+                                # Explicitly set both device and dtype for consistency
+                                pipeline._mula = pipeline._mula.to(device=mps_device, dtype=torch.float16)
+                                print(f"[Apple Metal] HeartMuLa moved to MPS with float16 precision", flush=True)
+                        else:
+                            logger.warning("[MPS] HeartMuLa model has no parameters - cannot verify device")
+                    except Exception as e:
+                        logger.warning(f"[MPS] Failed to verify HeartMuLa device: {e}")
+                
+                if hasattr(pipeline, '_codec') and pipeline._codec is not None:
+                    try:
+                        # Get first parameter's device, or handle case where model has no parameters
+                        codec_params = list(pipeline._codec.parameters())
+                        if codec_params:
+                            codec_device = codec_params[0].device
+                            print(f"[Apple Metal] HeartCodec model device: {codec_device}", flush=True)
+                            if codec_device.type != 'mps':
+                                logger.warning(f"[MPS] HeartCodec model is on {codec_device}, not MPS! This will be slow.")
+                                print(f"[Apple Metal] WARNING: HeartCodec is on {codec_device}, moving to MPS...", flush=True)
+                                # Explicitly set both device and dtype for consistency
+                                pipeline._codec = pipeline._codec.to(device=mps_device, dtype=torch.float16)
+                                print(f"[Apple Metal] HeartCodec moved to MPS with float16 precision", flush=True)
+                        else:
+                            logger.warning("[MPS] HeartCodec model has no parameters - cannot verify device")
+                    except Exception as e:
+                        logger.warning(f"[MPS] Failed to verify HeartCodec device: {e}")
+                
+                print("[Apple Metal] MPS pipeline loaded successfully with float16 precision", flush=True)
+                print("[Apple Metal] All models are on MPS device for hardware acceleration", flush=True)
                 return patch_pipeline_with_callback(pipeline, sequential_offload=False)
             finally:
                 # Restore original function if we patched it
