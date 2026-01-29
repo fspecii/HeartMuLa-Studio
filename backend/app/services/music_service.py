@@ -6,6 +6,7 @@ import torch
 import torch._dynamo
 import torchaudio
 import logging
+from contextlib import nullcontext
 from typing import Optional, Callable, Union, Dict
 from tqdm import tqdm
 from backend.app.models import GenerationRequest, Job, JobStatus
@@ -91,6 +92,30 @@ def is_mps_available() -> bool:
         bool: True if MPS is available, False otherwise
     """
     return hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()
+
+
+def get_autocast_context(device_type: str, dtype: torch.dtype):
+    """
+    Get the appropriate autocast context manager for the given device type.
+    
+    PyTorch's autocast only supports 'cuda', 'cpu', and 'xpu' device types.
+    For MPS (Apple Metal), autocast is not supported, so we use a nullcontext (no-op).
+    Since MPS pipelines already use float32, no autocast is needed.
+    
+    Args:
+        device_type: Device type string ('cuda', 'cpu', 'mps', 'xpu')
+        dtype: Data type for autocast
+    
+    Returns:
+        Context manager for autocast or nullcontext for unsupported devices
+    """
+    # torch.autocast doesn't support MPS device type
+    # MPS pipelines already use float32, so autocast is not needed
+    if device_type == 'mps':
+        return nullcontext()
+    
+    # For supported devices (cuda, cpu, xpu), use autocast
+    return torch.autocast(device_type=device_type, dtype=dtype)
 
 
 def detect_optimal_gpu_config() -> dict:
@@ -705,7 +730,7 @@ def patch_pipeline_with_callback(pipeline: HeartMuLaGenPipeline, sequential_offl
         bs_size = 2 if cfg_scale != 1.0 else 1
         pipeline.mula.setup_caches(bs_size)
 
-        with torch.autocast(device_type=pipeline.mula_device.type, dtype=pipeline.mula_dtype):
+        with get_autocast_context(pipeline.mula_device.type, pipeline.mula_dtype):
             curr_token = pipeline.mula.generate_frame(
                 tokens=prompt_tokens,
                 tokens_mask=prompt_tokens_mask,
@@ -739,7 +764,7 @@ def patch_pipeline_with_callback(pipeline: HeartMuLaGenPipeline, sequential_offl
 
         for i in tqdm(range(max_audio_frames), desc="Generating audio"):
             curr_token, curr_token_mask = _pad_audio_token(curr_token)
-            with torch.autocast(device_type=pipeline.mula_device.type, dtype=pipeline.mula_dtype):
+            with get_autocast_context(pipeline.mula_device.type, pipeline.mula_dtype):
                 curr_token = pipeline.mula.generate_frame(
                     tokens=curr_token,
                     tokens_mask=curr_token_mask,
