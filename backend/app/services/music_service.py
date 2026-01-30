@@ -822,6 +822,9 @@ def patch_pipeline_with_callback(pipeline: HeartMuLaGenPipeline, sequential_offl
         if callback is not None:
             callback(95, "Decoding audio...")
 
+        # Get codec dtype once for consistency
+        codec_dtype = getattr(pipeline, 'codec_dtype', torch.float32)
+        
         # Lazy codec loading: Load HeartCodec only when needed (for 12GB GPU mode)
         lazy_codec = getattr(pipeline, '_lazy_codec', False)
         if lazy_codec and pipeline._codec is None:
@@ -829,7 +832,6 @@ def patch_pipeline_with_callback(pipeline: HeartMuLaGenPipeline, sequential_offl
             codec_path = getattr(pipeline, '_codec_path', None)
             if codec_path:
                 # Use the same dtype as specified in the pipeline for consistency
-                codec_dtype = getattr(pipeline, 'codec_dtype', torch.float32)
                 pipeline._codec = HeartCodec.from_pretrained(
                     codec_path,
                     device_map=pipeline.codec_device,
@@ -842,7 +844,8 @@ def patch_pipeline_with_callback(pipeline: HeartMuLaGenPipeline, sequential_offl
             else:
                 raise RuntimeError("Cannot load HeartCodec: codec_path not available")
 
-        frames_for_codec = frames.to(pipeline.codec_device)
+        # Convert frames to codec device and dtype (important for MPS float16)
+        frames_for_codec = frames.to(device=pipeline.codec_device, dtype=codec_dtype)
         wav = pipeline.codec.detokenize(frames_for_codec)
 
         # Cleanup codec if using lazy loading (free VRAM for next generation)

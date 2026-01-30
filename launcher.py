@@ -210,17 +210,25 @@ def launch_server(app_dir, logs_dir):
         print("Warning: pywebview not available, falling back to browser")
         import webbrowser
         webbrowser.open("http://127.0.0.1:8000")
-        # Keep the server running
-        while True:
-            time.sleep(1)
+        # Keep the server running - wait for user to terminate
+        print("Server is running. Press Ctrl+C to stop.")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\nStopping server...")
     except Exception as e:
         print(f"Error launching window: {e}")
         print("Falling back to browser...")
         import webbrowser
         webbrowser.open("http://127.0.0.1:8000")
-        # Keep the server running
-        while True:
-            time.sleep(1)
+        # Keep the server running - wait for user to terminate
+        print("Server is running. Press Ctrl+C to stop.")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\nStopping server...")
 
 def main():
     """Main entry point."""
