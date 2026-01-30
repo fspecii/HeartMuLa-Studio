@@ -757,6 +757,8 @@ def patch_pipeline_with_callback(pipeline: HeartMuLaGenPipeline, sequential_offl
                 continuous_segments=continuous_segment,
                 starts=starts,
             )
+        # Convert to long immediately after generation (tokens must be integers)
+        curr_token = curr_token.long()
         frames.append(curr_token[0:1,])
 
         def _pad_audio_token(token):
@@ -791,6 +793,8 @@ def patch_pipeline_with_callback(pipeline: HeartMuLaGenPipeline, sequential_offl
                     continuous_segments=None,
                     starts=None,
                 )
+            # Convert to long immediately after generation (tokens must be integers)
+            curr_token = curr_token.long()
             if torch.any(curr_token[0:1, :] >= pipeline.config.audio_eos_id):
                 break
             frames.append(curr_token[0:1,])
