@@ -844,8 +844,9 @@ def patch_pipeline_with_callback(pipeline: HeartMuLaGenPipeline, sequential_offl
             else:
                 raise RuntimeError("Cannot load HeartCodec: codec_path not available")
 
-        # Convert frames to codec device and dtype (important for MPS float16)
-        frames_for_codec = frames.to(device=pipeline.codec_device, dtype=codec_dtype)
+        # Move frames to codec device (keep dtype as long for indexing)
+        # frames contains token IDs (integers) used as indices, so dtype must remain long
+        frames_for_codec = frames.to(device=pipeline.codec_device)
         wav = pipeline.codec.detokenize(frames_for_codec)
 
         # Cleanup codec if using lazy loading (free VRAM for next generation)
