@@ -337,20 +337,20 @@ export function SettingsModal({
                                         </p>
                                     </div>
 
-                                    {/* Sequential Offload */}
+                                    {/* Sequential Offload / Memory Swap Mode */}
                                     <div>
-                                        <label className={labelClass}>Sequential Offload</label>
+                                        <label className={labelClass}>Memory Swap Mode</label>
                                         <select
                                             value={settings.sequential_offload}
                                             onChange={(e) => setSettings({ ...settings, sequential_offload: e.target.value })}
                                             className={selectClass}
                                         >
                                             <option value="auto">Auto (based on VRAM)</option>
-                                            <option value="true">Enabled</option>
+                                            <option value="true">Force Enabled (recommended if getting CUBLAS errors)</option>
                                             <option value="false">Disabled</option>
                                         </select>
                                         <p className={`text-xs mt-1 ${darkMode ? 'text-[#6a6a6a]' : 'text-slate-400'}`}>
-                                            Swaps models to fit in 12GB VRAM (adds ~70s overhead)
+                                            Loads one model at a time to reduce VRAM usage. Enable if you see CUBLAS_STATUS_EXECUTION_FAILED errors.
                                         </p>
                                     </div>
 
