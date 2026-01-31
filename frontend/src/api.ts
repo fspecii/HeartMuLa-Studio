@@ -1,7 +1,8 @@
 import axios from 'axios';
 
 // Use the same host as the frontend (works for both localhost and LAN access)
-const API_BASE_URL = `http://${window.location.hostname}:8000`;
+const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}`;
+
 
 export interface Job {
     id: string;
