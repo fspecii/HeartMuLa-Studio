@@ -718,7 +718,19 @@ def patch_pipeline_with_callback(pipeline: HeartMuLaGenPipeline, sequential_offl
         elif not lazy_codec:
             pipeline._unload()
 
-        torchaudio.save(save_path, wav.to(torch.float32).cpu(), 48000)
+        # Save audio - try torchaudio first, fallback to soundfile for RTX 50 series (Blackwell)
+        try:
+            torchaudio.save(save_path, wav.to(torch.float32).cpu(), 48000)
+        except Exception as e:
+            # Fallback to soundfile for GPUs where torchcodec isn't supported (e.g., RTX 5080/5090)
+            print(f"[Audio Save] torchaudio failed ({e}), using soundfile fallback...", flush=True)
+            try:
+                import soundfile as sf
+                audio_np = wav.to(torch.float32).cpu().numpy().T  # (Channels, Time) -> (Time, Channels)
+                sf.write(save_path, audio_np, 48000)
+                print(f"[Audio Save] Saved with soundfile successfully", flush=True)
+            except ImportError:
+                raise RuntimeError("Audio save failed. Please install soundfile: pip install soundfile")
 
     # Store the custom method on the pipeline instance
     pipeline.generate_with_callback = generate_with_callback
