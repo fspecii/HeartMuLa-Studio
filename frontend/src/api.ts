@@ -1,8 +1,9 @@
 import axios from 'axios';
 
-// Use the same host as the frontend (works for both localhost and LAN access)
-const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}`;
-
+// Use same origin for reverse proxy setups, fallback to :8000 for dev/Docker
+const API_BASE_URL = import.meta.env.DEV 
+    ? `http://${window.location.hostname}:8000`  // Dev mode: explicit port 8000
+    : `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}`;  // Production: same origin
 
 export interface Job {
     id: string;
