@@ -576,3 +576,9 @@ Contributions are welcome! Please feel free to:
 <p align="center">
   Made with ❤️ for the open-source AI music community
 </p>
+
+<p align="center">
+  <a href="https://x.com/AmbsdOP">
+    <img src="https://img.shields.io/badge/Follow_@AmbsdOP-000000?style=for-the-badge&logo=x&logoColor=white" alt="Follow @AmbsdOP on X">
+  </a>
+</p>
