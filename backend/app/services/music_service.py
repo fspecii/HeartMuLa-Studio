@@ -50,7 +50,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # HuggingFace model IDs (base repos - version is appended for HeartMuLa)
-HF_HEARTCODEC_REPO = "HeartMuLa/HeartCodec-oss"
+HF_HEARTCODEC_REPO = "HeartMuLa/HeartCodec-oss-20260123"
 HF_HEARTMULA_GEN_REPO = "HeartMuLa/HeartMuLaGen"  # Contains tokenizer.json and gen_config.json
 
 # Model version mapping - maps version to (HuggingFace repo, local folder name)
