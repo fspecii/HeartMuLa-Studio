@@ -12,6 +12,7 @@ The provider is intentionally dependency-light: it only relies on ``requests``
 the heavy torch/heartlib stack.
 """
 
+import base64
 import logging
 import os
 from typing import Optional, Tuple
@@ -37,6 +38,9 @@ MINIMAX_DEFAULT_MODEL = "music-3.0"
 MINIMAX_OUTPUT_FORMATS = ["url", "hex"]
 MINIMAX_STREAM_OUTPUT_FORMATS = ["hex"]
 MINIMAX_AUDIO_FORMATS = ["mp3", "wav", "pcm"]
+COVER_MIN_SECONDS = 6
+COVER_MAX_SECONDS = 360
+COVER_MAX_BYTES = 50 * 1024 * 1024
 
 # Regional request fields that only apply to specific regions.
 MINIMAX_REGIONAL_FIELDS = {
@@ -136,11 +140,19 @@ class MiniMaxMusicProvider:
         cover_feature_id: Optional[str] = None,
         audio_url: Optional[str] = None,
         audio_base64: Optional[str] = None,
+        stream: bool = False,
+        audio_setting: Optional[dict] = None,
+        lyrics_optimizer: Optional[bool] = None,
+        audio_duration_seconds: Optional[float] = None,
+        audio_size_bytes: Optional[int] = None,
     ) -> dict:
         """Build the request payload, applying regional fields per region."""
+        if stream and self.output_format not in MINIMAX_STREAM_OUTPUT_FORMATS:
+            raise MiniMaxMusicError("Streaming music responses require output_format='hex'.")
         payload = {
             "model": model,
             "output_format": self.output_format,
+            "stream": stream,
         }
 
         if prompt:
@@ -149,19 +161,47 @@ class MiniMaxMusicProvider:
             payload["lyrics"] = lyrics
         if is_instrumental:
             payload["is_instrumental"] = True
-        if cover_feature_id:
-            payload["cover_feature_id"] = cover_feature_id
+        if audio_setting is not None:
+            audio_format = audio_setting.get("format")
+            if audio_format is not None and audio_format not in MINIMAX_AUDIO_FORMATS:
+                raise MiniMaxMusicError(f"Unsupported audio format: {audio_format}")
+            payload["audio_setting"] = audio_setting
+        if lyrics_optimizer is not None:
+            payload["lyrics_optimizer"] = lyrics_optimizer
 
-        # Cover models require exactly one reference-audio input.
+        # Cover models require exactly one direct or preprocessed audio input.
         if self.is_cover_model(model):
-            if audio_url:
-                payload["audio_url"] = audio_url
-            elif audio_base64:
-                payload["audio_base64"] = audio_base64
-            else:
+            cover_inputs = sum(bool(value) for value in (audio_url, audio_base64, cover_feature_id))
+            if cover_inputs != 1:
                 raise MiniMaxMusicError(
-                    "Cover models require one of 'audio_url' or 'audio_base64'."
+                    "Cover models require exactly one of 'audio_url', 'audio_base64', "
+                    "or 'cover_feature_id'."
                 )
+            if cover_feature_id:
+                payload["cover_feature_id"] = cover_feature_id
+            else:
+                if audio_duration_seconds is None:
+                    raise MiniMaxMusicError("Cover audio duration is required for validation.")
+                if not COVER_MIN_SECONDS <= audio_duration_seconds <= COVER_MAX_SECONDS:
+                    raise MiniMaxMusicError(
+                        f"Cover audio duration must be between {COVER_MIN_SECONDS} "
+                        f"and {COVER_MAX_SECONDS} seconds."
+                    )
+                if audio_base64:
+                    try:
+                        measured_size = len(base64.b64decode(audio_base64, validate=True))
+                    except (ValueError, TypeError) as exc:
+                        raise MiniMaxMusicError("Cover audio_base64 is invalid.") from exc
+                elif audio_size_bytes is None:
+                    raise MiniMaxMusicError("Cover audio size is required for URL inputs.")
+                else:
+                    measured_size = audio_size_bytes
+                if measured_size > COVER_MAX_BYTES:
+                    raise MiniMaxMusicError("Cover audio must not exceed 50 MB.")
+                if audio_url:
+                    payload["audio_url"] = audio_url
+                else:
+                    payload["audio_base64"] = audio_base64
 
         # Regional fields: only the China (cn_zh) region accepts aigc_watermark.
         for field_name in MINIMAX_REGIONAL_FIELDS.get(self.region, []):
@@ -252,6 +292,11 @@ class MiniMaxMusicProvider:
         cover_feature_id: Optional[str] = None,
         audio_url: Optional[str] = None,
         audio_base64: Optional[str] = None,
+        stream: bool = False,
+        audio_setting: Optional[dict] = None,
+        lyrics_optimizer: Optional[bool] = None,
+        audio_duration_seconds: Optional[float] = None,
+        audio_size_bytes: Optional[int] = None,
     ) -> Tuple[bytes, str]:
         """Run a music generation/cover job and return (audio_bytes, ext).
 
@@ -269,6 +314,11 @@ class MiniMaxMusicProvider:
             cover_feature_id=cover_feature_id,
             audio_url=audio_url,
             audio_base64=audio_base64,
+            stream=stream,
+            audio_setting=audio_setting,
+            lyrics_optimizer=lyrics_optimizer,
+            audio_duration_seconds=audio_duration_seconds,
+            audio_size_bytes=audio_size_bytes,
         )
         data = self._post(payload)
         return self._parse_response(data)

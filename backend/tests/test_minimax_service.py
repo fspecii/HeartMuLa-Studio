@@ -71,6 +71,26 @@ def test_payload_generation_model_fields():
     assert payload["lyrics"] == "[Verse] la la la"
     assert payload["output_format"] == "url"
     assert "aigc_watermark" not in payload
+    assert payload["stream"] is False
+
+
+def test_payload_optional_generation_settings():
+    p = _make_provider(output_format="hex")
+    payload = p._build_payload(
+        model="music-3.0", prompt="x", lyrics=None, stream=True,
+        audio_setting={"format": "wav", "sample_rate": 44100},
+        lyrics_optimizer=True,
+    )
+    assert payload["stream"] is True
+    assert payload["audio_setting"] == {"format": "wav", "sample_rate": 44100}
+    assert payload["lyrics_optimizer"] is True
+
+
+def test_stream_requires_hex_output():
+    with pytest.raises(MiniMaxMusicError, match="require output_format='hex'"):
+        _make_provider()._build_payload(
+            model="music-3.0", prompt="x", lyrics=None, stream=True,
+        )
 
 
 def test_payload_instrumental_flag():
@@ -104,6 +124,8 @@ def test_cover_model_accepts_audio_url():
     payload = p._build_payload(
         model="music-cover", prompt=None, lyrics=None,
         audio_url="https://example.com/track.mp3",
+        audio_duration_seconds=60,
+        audio_size_bytes=1024,
     )
     assert payload["audio_url"] == "https://example.com/track.mp3"
 
@@ -112,8 +134,53 @@ def test_cover_model_accepts_audio_base64():
     p = _make_provider()
     payload = p._build_payload(
         model="music-cover", prompt=None, lyrics=None, audio_base64="AAAA",
+        audio_duration_seconds=60,
     )
     assert payload["audio_base64"] == "AAAA"
+
+
+def test_cover_model_accepts_preprocessed_feature():
+    payload = _make_provider()._build_payload(
+        model="music-cover", prompt=None, lyrics="replacement lyrics",
+        cover_feature_id="feature-id",
+    )
+    assert payload["cover_feature_id"] == "feature-id"
+
+
+def test_cover_model_rejects_both_audio_inputs():
+    with pytest.raises(MiniMaxMusicError, match="exactly one"):
+        _make_provider()._build_payload(
+            model="music-cover", prompt=None, lyrics=None,
+            audio_url="https://example.com/track.mp3", audio_base64="AAAA",
+            audio_duration_seconds=60, audio_size_bytes=1024,
+        )
+
+
+def test_cover_model_rejects_direct_and_preprocessed_inputs():
+    with pytest.raises(MiniMaxMusicError, match="exactly one"):
+        _make_provider()._build_payload(
+            model="music-cover", prompt=None, lyrics="replacement lyrics",
+            audio_url="https://example.com/track.mp3", cover_feature_id="feature-id",
+            audio_duration_seconds=60, audio_size_bytes=1024,
+        )
+
+
+@pytest.mark.parametrize("duration", [5, 361])
+def test_cover_model_validates_duration(duration):
+    with pytest.raises(MiniMaxMusicError, match="duration"):
+        _make_provider()._build_payload(
+            model="music-cover", prompt=None, lyrics=None,
+            audio_base64="AAAA", audio_duration_seconds=duration,
+        )
+
+
+def test_cover_model_validates_size():
+    with pytest.raises(MiniMaxMusicError, match="50 MB"):
+        _make_provider()._build_payload(
+            model="music-cover", prompt=None, lyrics=None,
+            audio_url="https://example.com/track.mp3", audio_duration_seconds=60,
+            audio_size_bytes=50 * 1024 * 1024 + 1,
+        )
 
 
 def test_parse_url_response():
@@ -223,7 +290,8 @@ def test_generate_cover_model_sends_audio_url():
 
     with patch("backend.app.services.minimax_service.requests.post", side_effect=fake_post):
         p.generate(prompt=None, lyrics=None, model="music-cover",
-                   audio_url="https://example.com/src.mp3")
+                   audio_url="https://example.com/src.mp3",
+                   audio_duration_seconds=60, audio_size_bytes=1024)
 
     assert captured["json"]["model"] == "music-cover"
     assert captured["json"]["audio_url"] == "https://example.com/src.mp3"
